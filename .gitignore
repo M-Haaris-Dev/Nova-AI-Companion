@@ -1,0 +1,15 @@
+﻿config.json
+__pycache__/
+*.pyc
+*.pyo
+savegame.json
+chat_history.json
+companion_settings.json
+miyuki_emotion.json
+miyuki_command_bridge.json
+*.mp3
+*.tmp
+*.log
+.vscode/
+.idea/
+*.lnk

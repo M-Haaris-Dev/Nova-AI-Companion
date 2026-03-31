@@ -1,0 +1,9 @@
+PyQt5
+PyQtWebEngine
+google-genai
+SpeechRecognition
+edge-tts
+pyttsx3
+pyautogui
+Pillow
+keyboard

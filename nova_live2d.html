@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { margin: 0; padding: 0; }
+html, body { overflow: hidden; background: rgba(0,0,0,0) !important; width: 350px; height: 550px; }
+canvas { background: transparent !important; }
+#floating-status {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    color: #4FC3F7; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', sans-serif; font-size: 14px; font-weight: 600;
+    background: rgba(2,6,14,0.92); padding: 12px 22px; border-radius: 18px;
+    border: 1px solid rgba(0,150,255,0.25); z-index: 9999; pointer-events: none;
+    white-space: nowrap; transition: color 0.3s ease, border-color 0.3s ease;
+    max-width: 340px; text-overflow: ellipsis; overflow: hidden;
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 6px 30px rgba(0,60,160,0.25);
+}
+#floating-status.pop { animation: popAnim 0.4s ease; }
+@keyframes popAnim {
+    0% { transform: translateX(-50%) scale(0.85); opacity: 0.4; }
+    50% { transform: translateX(-50%) scale(1.08); opacity: 1; }
+    100% { transform: translateX(-50%) scale(1.0); opacity: 1; }
+}
+#loading-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(1,3,8,0.97); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20000;
+    transition: opacity 0.8s ease;
+}
+#loading-overlay.hidden { opacity: 0; pointer-events: none; }
+.loading-spinner {
+    width: 52px; height: 52px; border: 3px solid rgba(0,150,255,0.12);
+    border-top: 3px solid #00BFFF; border-radius: 50%;
+    animation: spin 1s linear infinite; margin-bottom: 22px;
+}
+@keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+.loading-text { color: #00BFFF; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', sans-serif; font-size: 15px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Loading Nova...</div>
+</div>
+<div id="floating-status">Loading...</div>
+<script>
+var cubismCoreMirrors=["https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js","https://cdn.jsdelivr.net/gh/nicx-next/live2d-cubism-core@master/live2dcubismcore.min.js"];
+var pixiMirrors=["https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.10/browser/pixi.min.js","https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"];
+var live2dPluginMirrors=["https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js","https://unpkg.com/pixi-live2d-display@0.4.0/dist/cubism4.min.js"];
+function loadScriptWithFallback(u,i,cb){if(i>=u.length){cb(false);return;}var s=document.createElement("script");s.src=u[i];s.onload=function(){cb(true);};s.onerror=function(){document.head.removeChild(s);loadScriptWithFallback(u,i+1,cb);};document.head.appendChild(s);}
+function updateLoadingText(t){var e=document.querySelector(".loading-text");if(e)e.textContent=t;}
+function hideLoading(){var o=document.getElementById("loading-overlay");if(o){o.classList.add("hidden");setTimeout(function(){o.style.display="none";},900);}}
+var currentModel=null,currentEmotion="neutral",emotionTransition=null;
+var idleTime=0,blinkTimer=0,isBlinking=false,modelReady=false;
+var paramMap={},frozenParams={};
+var touchReactTimer=null,touchCount=0;
+var trackMouseNX=0,trackMouseNY=0,smoothMouseX=0,smoothMouseY=0;
+var lastStatusText="";
+var EMOTIONS={
+neutral:{params:{ParamAngleX:0,ParamAngleY:0,ParamAngleZ:0,ParamEyeLOpen:1,ParamEyeROpen:1,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:0.2,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:0,ParamBodyAngleY:0,ParamBodyAngleZ:0}},
+happy:{params:{ParamAngleX:-18,ParamAngleY:8,ParamAngleZ:-22,ParamEyeLOpen:0,ParamEyeROpen:0,ParamEyeLSmile:1,ParamEyeRSmile:1,ParamMouthForm:0.65,ParamMouthOpenY:0,ParamCheek:1,ParamBodyAngleX:-12,ParamBodyAngleY:4,ParamBodyAngleZ:-16}},
+excited:{params:{ParamAngleX:-8,ParamAngleY:15,ParamAngleZ:-18,ParamEyeLOpen:1.3,ParamEyeROpen:1.3,ParamEyeLSmile:0.35,ParamEyeRSmile:0.35,ParamMouthForm:1,ParamMouthOpenY:0,ParamCheek:0.85,ParamBodyAngleX:-8,ParamBodyAngleY:8,ParamBodyAngleZ:10}},
+worried:{params:{ParamAngleX:-10,ParamAngleY:-8,ParamAngleZ:12,ParamEyeLOpen:0.55,ParamEyeROpen:0.5,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-0.85,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:-5,ParamBodyAngleY:-5,ParamBodyAngleZ:8}},
+proud:{params:{ParamAngleX:15,ParamAngleY:20,ParamAngleZ:-12,ParamEyeLOpen:0,ParamEyeROpen:1.2,ParamEyeLSmile:1,ParamEyeRSmile:0,ParamMouthForm:0.85,ParamMouthOpenY:0,ParamCheek:0.65,ParamBodyAngleX:12,ParamBodyAngleY:14,ParamBodyAngleZ:-10}},
+tired:{params:{ParamAngleX:12,ParamAngleY:-15,ParamAngleZ:20,ParamEyeLOpen:0.18,ParamEyeROpen:0.12,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-0.25,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:10,ParamBodyAngleY:-12,ParamBodyAngleZ:15}},
+shocked:{params:{ParamAngleX:0,ParamAngleY:-8,ParamAngleZ:-5,ParamEyeLOpen:1.5,ParamEyeROpen:1.5,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-0.85,ParamMouthOpenY:1,ParamCheek:0,ParamBodyAngleX:0,ParamBodyAngleY:-5,ParamBodyAngleZ:-8}},
+watching:{params:{ParamAngleX:5,ParamAngleY:-5,ParamAngleZ:8,ParamEyeLOpen:0.82,ParamEyeROpen:0.82,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:0.38,ParamMouthOpenY:0,ParamCheek:0.32,ParamBodyAngleX:5,ParamBodyAngleY:-3,ParamBodyAngleZ:6}},
+touched:{params:{ParamAngleX:0,ParamAngleY:5,ParamAngleZ:-12,ParamEyeLOpen:1.3,ParamEyeROpen:1.3,ParamEyeLSmile:0.45,ParamEyeRSmile:0.45,ParamMouthForm:0.92,ParamMouthOpenY:0,ParamCheek:1,ParamBodyAngleX:0,ParamBodyAngleY:3,ParamBodyAngleZ:-5}},
+headpat:{params:{ParamAngleX:0,ParamAngleY:-16,ParamAngleZ:-6,ParamEyeLOpen:0,ParamEyeROpen:0,ParamEyeLSmile:1,ParamEyeRSmile:1,ParamMouthForm:1,ParamMouthOpenY:0,ParamCheek:1,ParamBodyAngleX:0,ParamBodyAngleY:-9,ParamBodyAngleZ:-3}},
+poke:{params:{ParamAngleX:-22,ParamAngleY:12,ParamAngleZ:10,ParamEyeLOpen:1.4,ParamEyeROpen:0.35,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-0.55,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:-11,ParamBodyAngleY:6,ParamBodyAngleZ:5}},
+shy:{params:{ParamAngleX:-28,ParamAngleY:-12,ParamAngleZ:16,ParamEyeLOpen:0.35,ParamEyeROpen:0.45,ParamEyeLSmile:0.35,ParamEyeRSmile:0.35,ParamMouthForm:0.35,ParamMouthOpenY:0,ParamCheek:1,ParamBodyAngleX:-16,ParamBodyAngleY:-9,ParamBodyAngleZ:13}},
+comfort:{params:{ParamAngleX:6,ParamAngleY:-6,ParamAngleZ:-9,ParamEyeLOpen:0.72,ParamEyeROpen:0.72,ParamEyeLSmile:0.55,ParamEyeRSmile:0.55,ParamMouthForm:0.45,ParamMouthOpenY:0,ParamCheek:0.65,ParamBodyAngleX:4,ParamBodyAngleY:-4,ParamBodyAngleZ:-6}},
+loving:{params:{ParamAngleX:-11,ParamAngleY:6,ParamAngleZ:-16,ParamEyeLOpen:0,ParamEyeROpen:0,ParamEyeLSmile:1,ParamEyeRSmile:1,ParamMouthForm:0.75,ParamMouthOpenY:0,ParamCheek:1,ParamBodyAngleX:-9,ParamBodyAngleY:4,ParamBodyAngleZ:-11}},
+confused:{params:{ParamAngleX:16,ParamAngleY:11,ParamAngleZ:13,ParamEyeLOpen:1.12,ParamEyeROpen:0.68,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-0.35,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:9,ParamBodyAngleY:6,ParamBodyAngleZ:9}},
+nostalgic:{params:{ParamAngleX:11,ParamAngleY:-11,ParamAngleZ:6,ParamEyeLOpen:0.58,ParamEyeROpen:0.58,ParamEyeLSmile:0.25,ParamEyeRSmile:0.25,ParamMouthForm:0.22,ParamMouthOpenY:0,ParamCheek:0.32,ParamBodyAngleX:6,ParamBodyAngleY:-6,ParamBodyAngleZ:4}},
+angry:{params:{ParamAngleX:0,ParamAngleY:16,ParamAngleZ:-6,ParamEyeLOpen:0.88,ParamEyeROpen:0.88,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-1,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:0,ParamBodyAngleY:11,ParamBodyAngleZ:-4}},
+lonely:{params:{ParamAngleX:22,ParamAngleY:-22,ParamAngleZ:16,ParamEyeLOpen:0.48,ParamEyeROpen:0.48,ParamEyeLSmile:0,ParamEyeRSmile:0,ParamMouthForm:-0.55,ParamMouthOpenY:0,ParamCheek:0,ParamBodyAngleX:13,ParamBodyAngleY:-16,ParamBodyAngleZ:11}},
+relieved:{params:{ParamAngleX:-6,ParamAngleY:-6,ParamAngleZ:-11,ParamEyeLOpen:0,ParamEyeROpen:0,ParamEyeLSmile:0.82,ParamEyeRSmile:0.82,ParamMouthForm:0.55,ParamMouthOpenY:0,ParamCheek:0.55,ParamBodyAngleX:-4,ParamBodyAngleY:-4,ParamBodyAngleZ:-9}}
+};
+function updateMouseTracking(nx,ny){trackMouseNX=nx;trackMouseNY=ny;}
+function updateFloatingStatus(text,color){var el=document.getElementById("floating-status");if(!el)return;var changed=(lastStatusText!==text);lastStatusText=text;el.textContent=text;el.style.color=color;el.style.borderColor=color;if(changed){el.classList.remove("pop");void el.offsetWidth;el.classList.add("pop");}}
+function playStartupAnimation(){if(!modelReady)return;setEmotion("excited");setTimeout(function(){setEmotion("happy");setTimeout(function(){setEmotion("watching");setTimeout(function(){if(currentEmotion==="watching")setEmotion("neutral");},2800);},1600);},1300);}
+var modelUrls=["https://cdn.jsdelivr.net/gh/Live2D/CubismWebSamples@develop/Samples/Resources/Haru/Haru.model3.json"];
+async function tryLoadModel(urls,index){if(index>=urls.length)throw new Error("All model URLs failed");try{return await PIXI.live2d.Live2DModel.from(urls[index]);}catch(e){return await tryLoadModel(urls,index+1);}}
+async function initLive2D(){var app=new PIXI.Application({transparent:true,backgroundAlpha:0,width:350,height:550,resolution:1,autoDensity:true,antialias:true});app.renderer.backgroundAlpha=0;document.body.appendChild(app.view);app.view.style.cssText="position:fixed;top:0;left:0;z-index:1;";try{updateLoadingText("Loading Nova model...");var model=await tryLoadModel(modelUrls,0);currentModel=model;app.stage.addChild(model);var scale=Math.min(app.screen.width/model.width,app.screen.height/model.height)*0.9;model.scale.set(scale);model.anchor.set(0.5,0.0);model.x=app.screen.width/2;model.y=10;var ids=Array.from(currentModel.internalModel.coreModel._parameterIds);ids.forEach(function(id,idx){paramMap[id]=idx;});frozenParams={};for(var p in EMOTIONS.neutral.params){frozenParams[p]=EMOTIONS.neutral.params[p];}if(currentModel.internalModel.motionManager){currentModel.internalModel.motionManager.stopAllMotions();var origUpdate=currentModel.internalModel.motionManager.update.bind(currentModel.internalModel.motionManager);currentModel.internalModel.motionManager.update=function(m,now){origUpdate(m,now);applyFrozenParams();};}modelReady=true;hideLoading();updateFloatingStatus("[Neutral] Nova is here!","#4FC3F7");app.ticker.add(function(){if(!modelReady)return;idleTime+=0.016;blinkTimer+=0.016;smoothMouseX+=(trackMouseNX-smoothMouseX)*0.18;smoothMouseY+=(trackMouseNY-smoothMouseY)*0.18;applyFrozenParams();applyIdle();applyBlink();});}catch(e){updateLoadingText("Error: "+e.message);}}
+function handleTouch(areas){if(!modelReady)return;touchCount++;if(touchReactTimer)clearTimeout(touchReactTimer);if(touchCount>=3){setEmotion("headpat");touchCount=0;}else if(touchCount===2){setEmotion("touched");}else{setEmotion("poke");}touchReactTimer=setTimeout(function(){touchCount=0;setEmotion("happy");setTimeout(function(){if(currentEmotion==="happy")setEmotion("neutral");},3500);},4500);}
+function setP(name,value){if(!currentModel||!modelReady)return;var idx=paramMap[name];if(idx!==undefined)currentModel.internalModel.coreModel.setParameterValueByIndex(idx,value);}
+function applyFrozenParams(){if(!currentModel||!modelReady)return;for(var p in frozenParams)setP(p,frozenParams[p]);}
+function applyIdle(){var breath=0.5+Math.sin(idleTime*2)*0.5;setP("ParamBreath",breath);var ep=EMOTIONS[currentEmotion]?EMOTIONS[currentEmotion].params:EMOTIONS.neutral.params;var bAX=ep.ParamAngleX||0,bAY=ep.ParamAngleY||0,bAZ=ep.ParamAngleZ||0;var bBX=ep.ParamBodyAngleX||0,bBY=ep.ParamBodyAngleY||0,bBZ=ep.ParamBodyAngleZ||0;var mhx=smoothMouseX*35,mhy=-smoothMouseY*28;var mbx=smoothMouseX*12,mby=-smoothMouseY*8;frozenParams.ParamAngleX=bAX+Math.sin(idleTime*0.55)*1.2+mhx;
+frozenParams.ParamAngleY=bAY+Math.cos(idleTime*0.42)*0.9+mhy;
+frozenParams.ParamAngleZ=bAZ+Math.sin(idleTime*0.35)*1.1;
+frozenParams.ParamBodyAngleX=bBX+Math.sin(idleTime*0.28)*0.8+mbx;
+frozenParams.ParamBodyAngleY=bBY+mby;
+frozenParams.ParamBodyAngleZ=bBZ+Math.sin(idleTime*0.32)*0.7;setP("ParamHairFront",Math.sin(idleTime*1.2)*0.55);
+setP("ParamHairSide",Math.sin(idleTime*0.95)*0.4);
+setP("ParamHairBack",Math.sin(idleTime*0.85)*0.45);var eyesClosed=(currentEmotion==="happy"||currentEmotion==="headpat"||currentEmotion==="tired"||currentEmotion==="proud"||currentEmotion==="loving"||currentEmotion==="relieved"||currentEmotion==="shy");if(!eyesClosed){frozenParams.ParamEyeBallX=smoothMouseX*1.0;frozenParams.ParamEyeBallY=-smoothMouseY*0.85;}}
+function applyBlink(){var eyesClosed=(currentEmotion==="happy"||currentEmotion==="headpat"||currentEmotion==="tired"||currentEmotion==="loving"||currentEmotion==="relieved"||currentEmotion==="shy");if(eyesClosed||isBlinking)return;if(blinkTimer>3.2+Math.random()*4.2){isBlinking=true;blinkTimer=0;var oL=frozenParams.ParamEyeLOpen!==undefined?frozenParams.ParamEyeLOpen:1;var oR=frozenParams.ParamEyeROpen!==undefined?frozenParams.ParamEyeROpen:1;frozenParams.ParamEyeLOpen=0;frozenParams.ParamEyeROpen=0;setTimeout(function(){frozenParams.ParamEyeLOpen=oL;frozenParams.ParamEyeROpen=oR;isBlinking=false;},105);}}
+function setEmotion(emotionName){if(!currentModel||!modelReady)return;var emotion=EMOTIONS[emotionName];if(!emotion){emotion=EMOTIONS.neutral;emotionName="neutral";}currentEmotion=emotionName;if(emotionTransition){clearInterval(emotionTransition);emotionTransition=null;}var startParams={};for(var p in emotion.params){startParams[p]=frozenParams[p]!==undefined?frozenParams[p]:0;}var targetParams=emotion.params;var progress=0;emotionTransition=setInterval(function(){progress+=0.02;if(progress>=1){progress=1;clearInterval(emotionTransition);emotionTransition=null;}var t=1-Math.pow(1-progress,3);for(var param in targetParams){var sv=startParams[param]!==undefined?startParams[param]:0;frozenParams[param]=sv+(targetParams[param]-sv)*t;}},16);}
+window.setEmotion=setEmotion;window.updateMouseTracking=updateMouseTracking;window.updateFloatingStatus=updateFloatingStatus;window.handleTouch=handleTouch;window.playStartupAnimation=playStartupAnimation;
+function startLoading(){updateLoadingText("Loading Cubism Core...");loadScriptWithFallback(cubismCoreMirrors,0,function(ok1){if(!ok1){updateLoadingText("Failed: Cubism Core");return;}updateLoadingText("Loading PixiJS...");loadScriptWithFallback(pixiMirrors,0,function(ok2){if(!ok2){updateLoadingText("Failed: PixiJS");return;}updateLoadingText("Loading Live2D Plugin...");loadScriptWithFallback(live2dPluginMirrors,0,function(ok3){if(!ok3){updateLoadingText("Failed: Live2D Plugin");return;}updateLoadingText("Initializing Nova...");setTimeout(initLive2D,500);});});});}
+startLoading();
+</script>
+</body>
+</html>
