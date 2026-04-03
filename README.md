@@ -1,6 +1,6 @@
 # 🌟 Nova - AI Desktop Companion (Ultra v2.0)
 
-Nova is an intelligent, humanoid desktop companion designed to be your "Cognitive Twin." She lives on your desktop, monitors your productivity, actively learns your workflow, and supports your emotional wellbeing.
+Nova is an intelligent, humanoid desktop companion designed to be your "Cognitive Partner" . She lives on your desktop, monitors your productivity, actively learns your workflow, and supports your emotional wellbeing.
 
 ---
 
