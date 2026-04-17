@@ -12,8 +12,9 @@ import base64
 import io
 import asyncio
 import tempfile
+import difflib
 from datetime import datetime
-from PyQt5.QtWidgets import (QApplication,QWidget,QLabel,QPushButton,QVBoxLayout,QHBoxLayout,QFrame,QGraphicsDropShadowEffect,QMenu,QSystemTrayIcon,QLineEdit,QSizePolicy,QScrollArea,QTextEdit,QAction,QTextBrowser,QSlider,QDialog)
+from PyQt5.QtWidgets import (QApplication,QWidget,QLabel,QPushButton,QVBoxLayout,QHBoxLayout,QFrame,QGraphicsDropShadowEffect,QMenu,QSystemTrayIcon,QLineEdit,QSizePolicy,QScrollArea,QTextEdit,QAction,QTextBrowser,QSlider,QDialog,QFileDialog)
 from PyQt5.QtCore import (Qt,QTimer,QPropertyAnimation,QEasingCurve,QThread,pyqtSignal,QPoint,QRect,QUrl,QSize)
 from PyQt5.QtWebEngineWidgets import QWebEngineView,QWebEnginePage,QWebEngineSettings
 from PyQt5.QtGui import QColor,QCursor,QFont,QIcon,QPixmap,QPainter
@@ -59,20 +60,15 @@ gemini_client=None
 tts_engine=None
 tts_lock=threading.Lock()
 media_player=None
-VOICE_PROFILES={
-    "gentle":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},
-    "excited":{"name":"en-US-AvaNeural","rate":"+5%","pitch":"+2Hz"},
-    "caring":{"name":"en-US-AvaNeural","rate":"-3%","pitch":"-1Hz"},
-    "playful":{"name":"en-US-AvaNeural","rate":"+3%","pitch":"+1Hz"},
-    "comfort":{"name":"en-US-AvaNeural","rate":"-5%","pitch":"-2Hz"},
-    "proud":{"name":"en-US-AvaNeural","rate":"+2%","pitch":"+1Hz"},
-    "worried":{"name":"en-US-AvaNeural","rate":"-2%","pitch":"-1Hz"},
-    "default":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},
-}
+VOICE_PROFILES={"gentle":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"excited":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"caring":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"playful":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"comfort":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"proud":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"worried":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"},"default":{"name":"en-US-AvaNeural","rate":"+0%","pitch":"+0Hz"}}
 EMOTION_VOICE_MAP={"happy":"excited","excited":"excited","proud":"proud","tired":"comfort","worried":"worried","watching":"default","loving":"gentle","caring":"caring","playful":"playful","curious":"default","jealous":"worried","neutral":"default","shocked":"excited","touched":"gentle","headpat":"gentle","poke":"playful","smug":"proud","sleepy":"comfort","determined":"proud","grateful":"gentle","shy":"gentle","comfort":"comfort","confused":"worried","nostalgic":"gentle","angry":"worried","lonely":"comfort","relieved":"gentle"}
 EMOTION_STATUS_COLORS={"happy":"#00D4AA","excited":"#00BFFF","proud":"#1E90FF","tired":"#6B7B8D","worried":"#FF6347","watching":"#4FC3F7","loving":"#7B68EE","caring":"#20B2AA","playful":"#00CED1","curious":"#42A5F5","jealous":"#FF4757","neutral":"#4FC3F7","shocked":"#FF3838","touched":"#00D4AA","headpat":"#00D4AA","poke":"#FF8C00","smug":"#1E90FF","sleepy":"#6B7B8D","determined":"#00BFFF","grateful":"#00D4AA","shy":"#7B68EE","comfort":"#20B2AA","confused":"#42A5F5","nostalgic":"#7B68EE","angry":"#FF3838","lonely":"#4FC3F7","relieved":"#1E90FF"}
 EMOTION_DISPLAY_NAMES={"happy":"Happy","excited":"Excited","proud":"Proud","tired":"Tired","worried":"Worried","watching":"Watching","loving":"Loving","caring":"Caring","playful":"Playful","curious":"Curious","jealous":"Jealous","neutral":"Neutral","shocked":"Shocked","touched":"Touched","headpat":"Headpat","poke":"Poke","smug":"Smug","sleepy":"Sleepy","determined":"Determined","grateful":"Grateful","shy":"Shy","comfort":"Comfort","confused":"Confused","nostalgic":"Nostalgic","angry":"Angry","lonely":"Lonely","relieved":"Relieved"}
 HUMAN_FILLERS=["Hmm, let me think...","Oh! I see...","Well...","Let me check that for you...","Interesting...","Hold on a sec...","Right, so..."]
+SPEAK_IMPORTANT_ONLY=False
+IMPORTANT_KEYWORDS=["break","hour","hours","minutes","stretch","hydrate","water","sleep","rest","late","3 am","midnight","posture","eyes","scrolling","too long","take a break","mandatory","health"]
+def should_speak_quote(text):
+    return True
 def load_config():
     defaults={"api_key":"","player_name":"Twin","voice_id":"en-US-AvaNeural"}
     try:
@@ -93,8 +89,8 @@ def get_api_key():
     config=load_config()
     return config.get("api_key","")
 def reset_all_data():
-    files_to_delete=[CONFIG_FILE,SAVE_FILE,CHAT_HISTORY_FILE,SETTINGS_FILE,EMOTION_FILE,COMMAND_FILE,LEARNED_COMMANDS_FILE]
-    for f in files_to_delete:
+    files=[CONFIG_FILE,SAVE_FILE,CHAT_HISTORY_FILE,SETTINGS_FILE,EMOTION_FILE,COMMAND_FILE,LEARNED_COMMANDS_FILE]
+    for f in files:
         try:
             if os.path.exists(f):
                 os.remove(f)
@@ -103,102 +99,33 @@ def reset_all_data():
 def restart_application():
     python=sys.executable
     os.execl(python,python,*sys.argv)
-class SetupWindow(QDialog):
-    def __init__(self,parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Nova Setup")
-        self.setFixedSize(520,420)
-        self.setStyleSheet("background-color: rgba(6, 10, 18, 250);")
-        self.api_key=""
-        self._build_ui()
-    def _build_ui(self):
-        layout=QVBoxLayout()
-        layout.setContentsMargins(30,30,30,30)
-        layout.setSpacing(18)
-        title=QLabel("Welcome to Nova")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: #00BFFF; font-family: 'Segoe UI'; font-weight: bold; font-size: 28px; border: none; background: transparent;")
-        layout.addWidget(title)
-        subtitle=QLabel("Your AI Cognitive Twin needs a brain to function.\nPlease paste your Google Gemini API key below.")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: rgba(200, 215, 235, 0.8); font-family: 'Segoe UI'; font-size: 14px; border: none; background: transparent;")
-        layout.addWidget(subtitle)
-        self.key_input=QLineEdit()
-        self.key_input.setPlaceholderText("Paste your Gemini API key here...")
-        self.key_input.setEchoMode(QLineEdit.Password)
-        self.key_input.setStyleSheet("QLineEdit {background-color: rgba(0, 150, 255, 0.08);border: 1px solid rgba(0, 150, 255, 0.3);border-radius: 14px;color: rgba(255,255,255,0.9);padding: 14px 20px;font-family: 'Consolas';font-size: 14px;}QLineEdit:focus {border: 1px solid rgba(0, 191, 255, 0.6);}")
-        layout.addWidget(self.key_input)
-        self.name_input=QLineEdit()
-        self.name_input.setPlaceholderText("What should Nova call you? (Default: Twin)")
-        self.name_input.setStyleSheet("QLineEdit {background-color: rgba(0, 150, 255, 0.08);border: 1px solid rgba(0, 150, 255, 0.3);border-radius: 14px;color: rgba(255,255,255,0.9);padding: 14px 20px;font-family: 'Consolas';font-size: 14px;}QLineEdit:focus {border: 1px solid rgba(0, 191, 255, 0.6);}")
-        layout.addWidget(self.name_input)
-        link_label=QLabel('<a href="https://aistudio.google.com/app/apikey" style="color: #00BFFF; text-decoration: none;">Click here to get your free Gemini API key</a>')
-        link_label.setOpenExternalLinks(True)
-        link_label.setAlignment(Qt.AlignCenter)
-        link_label.setStyleSheet("font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
-        layout.addWidget(link_label)
-        layout.addStretch()
-        self.status_label=QLabel("")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #FF4757; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
-        layout.addWidget(self.status_label)
-        start_btn=QPushButton("Activate Nova")
-        start_btn.setCursor(Qt.PointingHandCursor)
-        start_btn.setStyleSheet("QPushButton {background: rgba(0, 191, 255, 0.2);border: 1px solid rgba(0, 191, 255, 0.5);border-radius: 18px;color: #00BFFF;font-family: 'Segoe UI';font-size: 18px;font-weight: bold;padding: 14px 40px;}QPushButton:hover {background: rgba(0, 191, 255, 0.4);}")
-        start_btn.clicked.connect(self._validate_and_save)
-        layout.addWidget(start_btn)
-        self.setLayout(layout)
-    def _validate_and_save(self):
-        key=self.key_input.text().strip()
-        name=self.name_input.text().strip()or"Twin"
-        if not key:
-            self.status_label.setText("Please enter your API key.")
-            self.status_label.setStyleSheet("color: #FF4757; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
-            return
-        if len(key)<20:
-            self.status_label.setText("That key looks too short. Please check it.")
-            self.status_label.setStyleSheet("color: #FF4757; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
-            return
-        self.status_label.setText("Validating your key...")
-        self.status_label.setStyleSheet("color: #00BFFF; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
-        QApplication.processEvents()
-        models_to_try=["gemini-2.5-flash","gemini-2.0-flash-exp","gemini-2.0-flash","gemini-1.5-flash","gemini-pro"]
-        validated=False
-        for model in models_to_try:
-            try:
-                test_client=genai.Client(api_key=key)
-                response=test_client.models.generate_content(model=model,contents="Hi")
-                if response and response.text:
-                    validated=True
-                    config=load_config()
-                    config["api_key"]=key
-                    config["player_name"]=name
-                    config["preferred_model"]=model
-                    save_config(config)
-                    self.api_key=key
-                    self.accept()
-                    return
-            except Exception as e:
-                error_str=str(e).lower()
-                if "quota"in error_str or"exhausted"in error_str or"rate"in error_str:
-                    config=load_config()
-                    config["api_key"]=key
-                    config["player_name"]=name
-                    save_config(config)
-                    self.api_key=key
-                    self.accept()
-                    return
-                continue
-        if not validated:
-            self.status_label.setText("Could not validate. Save anyway?")
-            self.status_label.setStyleSheet("color: #FFD700; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
-            config=load_config()
-            config["api_key"]=key
-            config["player_name"]=name
-            save_config(config)
-            self.api_key=key
-            QTimer.singleShot(1500,self.accept)
+def get_player_name():
+    config=load_config()
+    name=config.get("player_name","")
+    if name:
+        return name
+    try:
+        if os.path.exists(SAVE_FILE):
+            with open(SAVE_FILE,"r")as f:
+                return json.load(f).get("name","Twin")
+    except Exception:
+        pass
+    return"Twin"
+def load_settings():
+    defaults={"sound_enabled":True,"idle_transparency":True,"player_name":"Twin","tts_enabled":True,"tts_volume":0.8,"chat_font_size":16}
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE,"r")as f:
+                defaults.update(json.load(f))
+    except Exception:
+        pass
+    return defaults
+def save_settings(settings):
+    try:
+        with open(SETTINGS_FILE,"w")as f:
+            json.dump(settings,f)
+    except Exception:
+        pass
 def send_emotion(emotion,message="",duration=5000):
     data={"emotion":emotion,"message":message,"timestamp":time.time(),"duration":duration}
     try:
@@ -256,106 +183,56 @@ def get_active_window_title():
         return buf.value.lower()
     except Exception:
         return""
-def load_settings():
-    defaults={"sound_enabled":True,"idle_transparency":True,"player_name":"Twin","tts_enabled":True,"tts_volume":0.8,"chat_font_size":16}
-    try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE,"r")as f:
-                defaults.update(json.load(f))
-    except Exception:
-        pass
-    return defaults
-def save_settings(settings):
-    try:
-        with open(SETTINGS_FILE,"w")as f:
-            json.dump(settings,f)
-    except Exception:
-        pass
-SPEAK_IMPORTANT_ONLY=True
-IMPORTANT_KEYWORDS=["break","hour","hours","minutes","stretch","hydrate","water","sleep","rest","late","3 am","midnight","posture","eyes","scrolling","too long","take a break","mandatory","health"]
-def should_speak_quote(text):
-    if not SPEAK_IMPORTANT_ONLY:
-        return True
-    text_lower=text.lower()
-    for keyword in IMPORTANT_KEYWORDS:
-        if keyword in text_lower:
-            return True
-    return False
-def get_player_name():
-    config=load_config()
-    name=config.get("player_name","")
-    if name:
-        return name
-    try:
-        if os.path.exists(SAVE_FILE):
-            with open(SAVE_FILE,"r")as f:
-                return json.load(f).get("name","Twin")
-    except Exception:
-        pass
-    return"Twin"
-class EdgeTTSWorker(QThread):
-    audio_ready=pyqtSignal(str)
-    tts_error=pyqtSignal(str)
-    def __init__(self,text,emotion="neutral",volume=1.0):
-        super().__init__()
-        self.text=text
-        self.emotion=emotion
-        self.volume=volume
-    def run(self):
-        if not HAS_EDGE_TTS:
-            self.tts_error.emit("Edge TTS not available")
-            return
-        try:
-            voice_key=EMOTION_VOICE_MAP.get(self.emotion,"default")
-            profile=VOICE_PROFILES.get(voice_key,VOICE_PROFILES["default"])
-            clean_text=re.sub(r'[^\w\s.,!?\'"()-]','',self.text)
-            clean_text=re.sub(r'\s+',' ',clean_text).strip()
-            if not clean_text:
-                return
-            temp_file=os.path.join(tempfile.gettempdir(),f"nova_tts_{int(time.time()*1000)}.mp3")
-            async def generate():
-                communicate=edge_tts.Communicate(clean_text,voice=profile["name"],rate=profile["rate"],pitch=profile["pitch"])
-                await communicate.save(temp_file)
-            loop=asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(generate())
-            loop.close()
-            if os.path.exists(temp_file):
-                self.audio_ready.emit(temp_file)
-        except Exception as e:
-            self.tts_error.emit(str(e)[:50])
-def get_legacy_tts_engine():
-    global tts_engine
-    if tts_engine is None and HAS_TTS:
-        try:
-            tts_engine=pyttsx3.init()
-            tts_engine.setProperty('rate',175)
-            tts_engine.setProperty('volume',0.9)
-            voices=tts_engine.getProperty('voices')
-            for voice in voices:
-                if'female'in voice.name.lower()or'zira'in voice.name.lower():
-                    tts_engine.setProperty('voice',voice.id)
-                    break
-        except Exception:
-            tts_engine=None
-    return tts_engine
-def speak_legacy(text,volume=1.0):
-    if not HAS_TTS:
-        return
-    def _speak():
-        with tts_lock:
-            engine=get_legacy_tts_engine()
-            if engine:
-                try:
-                    engine.setProperty('volume',volume)
-                    clean_text=re.sub(r'[^\w\s.,!?\'"()-]','',text)
-                    clean_text=re.sub(r'\s+',' ',clean_text).strip()
-                    if clean_text:
-                        engine.say(clean_text)
-                        engine.runAndWait()
-                except Exception:
-                    pass
-    threading.Thread(target=_speak,daemon=True).start()
+def fuzzy_find_command(query,threshold=0.6):
+    query_clean=query.lower().strip()
+    for prefix in["open ","launch ","start ","go to ","take me to ","navigate to ","visit "]:
+        if query_clean.startswith(prefix):
+            query_clean=query_clean[len(prefix):].strip()
+            break
+    all_keys=list(COMMAND_MAP.keys())+list(load_learned_commands().keys())
+    all_targets=[k.replace("open ","") for k in all_keys]
+    matches=difflib.get_close_matches(query_clean,all_targets,n=1,cutoff=threshold)
+    if matches:
+        matched_target=matches[0]
+        for k in COMMAND_MAP:
+            if k.replace("open ","")==matched_target:
+                return COMMAND_MAP[k],None
+        learned=load_learned_commands()
+        if matched_target in learned:
+            return learned[matched_target],None
+    return None,None
+def generate_smart_voice_text(full_text,player_name):
+    has_code=bool(re.search(r'```[\s\S]*?```',full_text))
+    clean_text=re.sub(r'```[\s\S]*?```','',full_text).strip()
+    clean_text=re.sub(r'\[CMD:[^\]]+\]','',clean_text).strip()
+    clean_text=re.sub(r'https?://\S+','',clean_text).strip()
+    clean_text=re.sub(r'\s+',' ',clean_text).strip()
+    clean_text=re.sub(r'[^\w\s.,!?\'"()-]','',clean_text).strip()
+    text_length=len(clean_text)
+    if has_code:
+        sentences=re.split(r'[.!?]+',clean_text)
+        first_part=' '.join(sentences[:2]).strip()if sentences else clean_text[:80]
+        if len(first_part)<20:
+            first_part="Done!"
+        return f"{first_part} Check the chat for the full code, {player_name}!"
+    if text_length<=500:
+        return clean_text
+    sentences=re.split(r'[.!?]+',clean_text)
+    summary_sentences=[]
+    char_count=0
+    for s in sentences:
+        s=s.strip()
+        if s and char_count+len(s)<400:
+            summary_sentences.append(s)
+            char_count+=len(s)
+        if char_count>=350 or len(summary_sentences)>=5:
+            break
+    if summary_sentences:
+        result='. '.join(summary_sentences)
+        if not result.endswith(('!','?','.')):
+            result+='.'
+        return f"{result} More details in the chat, {player_name}!"
+    return clean_text[:400]
 def detect_message_emotion(text):
     ml=text.lower()
     negation_words=["not","don't","isn't","wasn't","never","no","neither","hardly"]
@@ -460,38 +337,251 @@ def detect_response_emotion(text):
     if any(w in ml for w in["happy","glad","yay","nice"]):
         return"happy"
     return"happy"
-def generate_smart_voice_text(full_text,player_name):
-    has_code=bool(re.search(r'```[\s\S]*?```',full_text))
-    clean_text=re.sub(r'```[\s\S]*?```','',full_text).strip()
-    clean_text=re.sub(r'\[CMD:[^\]]+\]','',clean_text).strip()
-    clean_text=re.sub(r'https?://\S+','',clean_text).strip()
-    clean_text=re.sub(r'\s+',' ',clean_text).strip()
-    clean_text=re.sub(r'[^\w\s.,!?\'"()-]','',clean_text).strip()
-    text_length=len(clean_text)
-    if has_code:
-        sentences=re.split(r'[.!?]+',clean_text)
-        first_part=' '.join(sentences[:2]).strip()if sentences else clean_text[:80]
-        if len(first_part)<20:
-            first_part="Done!"
-        return f"{first_part} Check the chat box for the full code, {player_name}!"
-    if text_length<=500:
-        return clean_text
-    sentences=re.split(r'[.!?]+',clean_text)
-    summary_sentences=[]
-    char_count=0
-    for s in sentences:
-        s=s.strip()
-        if s and char_count+len(s)<400:
-            summary_sentences.append(s)
-            char_count+=len(s)
-        if char_count>=350 or len(summary_sentences)>=5:
+def load_learned_commands():
+    try:
+        if os.path.exists(LEARNED_COMMANDS_FILE):
+            with open(LEARNED_COMMANDS_FILE,"r")as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return{}
+def save_learned_commands(commands):
+    try:
+        with open(LEARNED_COMMANDS_FILE,"w")as f:
+            json.dump(commands,f,indent=2)
+    except Exception:
+        pass
+def add_learned_command(name,cmd_type,target,response=None,aliases=None):
+    commands=load_learned_commands()
+    commands[name.lower()]={"type":cmd_type,"target":target,"response":response or f"Opening {name}!","learned_at":datetime.now().strftime("%Y-%m-%d %H:%M"),"aliases":aliases or[],"emotion":"happy"}
+    save_learned_commands(commands)
+    return True
+def remove_learned_command(name):
+    commands=load_learned_commands()
+    name_lower=name.lower()
+    if name_lower in commands:
+        del commands[name_lower]
+        save_learned_commands(commands)
+        return True
+    for key,data in list(commands.items()):
+        if name_lower in[a.lower()for a in data.get("aliases",[])]:
+            del commands[key]
+            save_learned_commands(commands)
+            return True
+    return False
+def get_learned_command(name):
+    commands=load_learned_commands()
+    name_lower=name.lower()
+    if name_lower in commands:
+        return commands[name_lower]
+    for key,data in commands.items():
+        if name_lower in[a.lower()for a in data.get("aliases",[])]:
+            return data
+    return None
+def find_similar_commands(name,threshold=0.55):
+    name_lower=name.lower().strip()
+    all_commands=list(COMMAND_MAP.keys())+list(load_learned_commands().keys())
+    all_targets=[k.replace("open ","").lower() for k in all_commands]
+    matches=difflib.get_close_matches(name_lower,all_targets,n=3,cutoff=threshold)
+    result=[]
+    for m in matches:
+        for k in COMMAND_MAP:
+            if k.replace("open ","")==m:
+                result.append(k)
+                break
+        learned=load_learned_commands()
+        if m in learned:
+            result.append(m)
+    return result[:3]
+def open_folder(folder_name):
+    user_profile=os.environ.get('USERPROFILE',os.path.expanduser('~'))
+    folder_map={"documents":os.path.join(user_profile,"Documents"),"downloads":os.path.join(user_profile,"Downloads"),"desktop":os.path.join(user_profile,"Desktop"),"pictures":os.path.join(user_profile,"Pictures"),"music":os.path.join(user_profile,"Music"),"videos":os.path.join(user_profile,"Videos")}
+    folder_path=folder_map.get(folder_name.lower())
+    if not folder_path:
+        folder_path=os.path.join(user_profile,folder_name)
+    if not os.path.exists(folder_path):
+        folder_path=user_profile
+    try:
+        os.startfile(folder_path)
+        return True
+    except Exception:
+        pass
+    try:
+        subprocess.Popen(['explorer',folder_path])
+        return True
+    except Exception:
+        pass
+    return False
+def execute_command(cmd_data):
+    try:
+        cmd_type=cmd_data.get("type","")
+        target=cmd_data.get("target","")
+        if cmd_type=="web":
+            url=target if target.startswith("http")else f"https://{target}"
+            webbrowser.open(url)
+            return True
+        elif cmd_type=="app":
+            try:
+                subprocess.Popen(target,shell=False)
+                return True
+            except Exception:
+                pass
+            try:
+                os.startfile(target)
+                return True
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(f'start "" "{target}"',shell=True)
+                return True
+            except Exception:
+                pass
+            return False
+        elif cmd_type=="system":
+            try:
+                os.startfile(target)
+                return True
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(f'start {target}',shell=True)
+                return True
+            except Exception:
+                pass
+            return False
+        elif cmd_type=="folder":
+            return open_folder(target)
+        elif cmd_type=="type":
+            if HAS_SCREENSHOT:
+                pyautogui.typewrite(target,interval=0.03)
+                return True
+            return False
+    except Exception:
+        return False
+ABBREVIATIONS={"yt":"youtube","ig":"instagram","fb":"facebook","tw":"twitter","wp":"whatsapp","tg":"telegram","dc":"discord","gm":"gmail","gh":"github","vs":"vscode","calc":"calculator","np":"notepad","gd":"google drive","nf":"netflix","amz":"amazon","wiki":"wikipedia","ppt":"powerpoint","docs":"google docs","lc":"leetcode","nc":"neetcode","hr":"hackerrank","cf":"codeforces","cc":"codechef","gfg":"geeksforgeeks"}
+def parse_chat_command(message):
+    msg_lower=message.lower().strip()
+    if len(msg_lower)<3:
+        return None,None
+    for cmd_key,cmd_data in COMMAND_MAP.items():
+        if msg_lower==cmd_key or msg_lower.startswith(cmd_key+" "):
+            return cmd_data,None
+    learned=get_learned_command(msg_lower.replace("open ","").replace("launch ","").replace("start ",""))
+    if learned:
+        return learned,None
+    clean=msg_lower
+    for w in["can you","please","could you","would you","open","launch","start","go to"]:
+        clean=clean.replace(w," ")
+    clean=" ".join(clean.split()).strip()
+    if len(clean)<2:
+        return None,None
+    for abbr,full in ABBREVIATIONS.items():
+        if clean==abbr:
+            clean=full
             break
-    if summary_sentences:
-        result='. '.join(summary_sentences)
-        if not result.endswith(('!','?','.')):
-            result+='.'
-        return f"{result} More details in the chat, {player_name}!"
-    return clean_text[:400]
+    for cmd_key,cmd_data in COMMAND_MAP.items():
+        cmd_target=cmd_key.replace("open ","")
+        if clean==cmd_target:
+            return cmd_data,None
+    learned=get_learned_command(clean)
+    if learned:
+        return learned,None
+    fuzzy_cmd,_=fuzzy_find_command(clean)
+    if fuzzy_cmd:
+        return fuzzy_cmd,None
+    if msg_lower.startswith(("open ","launch ","go to ","start ","take me to ","visit ")):
+        target=msg_lower.split(" ",1)[1].strip()
+        if len(target)>1:
+            if "."in target and " "not in target:
+                url=target if target.startswith("http")else"https://"+target
+                return{"type":"web","target":url,"response":f"Opening {target}!","emotion":"happy"},None
+            suggestions=find_similar_commands(target)
+            return None,{"unknown_target":target,"suggestions":suggestions}
+    return None,None
+COMMAND_MAP={"open notepad":{"type":"app","target":"notepad.exe","response":"Notepad's open!","emotion":"happy"},"open calculator":{"type":"app","target":"calc.exe","response":"Calculator up!","emotion":"curious"},"open paint":{"type":"app","target":"mspaint.exe","response":"Paint time!","emotion":"excited"},"open cmd":{"type":"app","target":"cmd.exe","response":"CMD ready!","emotion":"proud"},"open powershell":{"type":"app","target":"powershell.exe","response":"PowerShell on!","emotion":"determined"},"open terminal":{"type":"app","target":"wt.exe","response":"Terminal ready!","emotion":"proud"},"open explorer":{"type":"app","target":"explorer.exe","response":"Explorer open!","emotion":"curious"},"open task manager":{"type":"app","target":"taskmgr.exe","response":"Task Manager up!","emotion":"worried"},"open settings":{"type":"system","target":"ms-settings:","response":"Settings open!","emotion":"watching"},"open control panel":{"type":"app","target":"control.exe","response":"Control Panel!","emotion":"watching"},"open snipping tool":{"type":"app","target":"snippingtool.exe","response":"Snipping ready!","emotion":"happy"},"open word":{"type":"app","target":"winword.exe","response":"Word is up!","emotion":"watching"},"open excel":{"type":"app","target":"excel.exe","response":"Excel ready!","emotion":"determined"},"open powerpoint":{"type":"app","target":"powerpnt.exe","response":"PowerPoint up!","emotion":"excited"},"open outlook":{"type":"app","target":"outlook.exe","response":"Outlook open!","emotion":"watching"},"open onenote":{"type":"app","target":"onenote.exe","response":"OneNote ready!","emotion":"happy"},"open teams":{"type":"system","target":"ms-teams:","response":"Teams is up!","emotion":"watching"},"open chrome":{"type":"app","target":"chrome.exe","response":"Chrome opening!","emotion":"curious"},"open firefox":{"type":"app","target":"firefox.exe","response":"Firefox ready!","emotion":"proud"},"open edge":{"type":"app","target":"msedge.exe","response":"Edge opening!","emotion":"watching"},"open brave":{"type":"app","target":"brave.exe","response":"Brave browser!","emotion":"proud"},"open opera":{"type":"app","target":"opera.exe","response":"Opera ready!","emotion":"happy"},"open discord":{"type":"app","target":"discord.exe","response":"Discord up!","emotion":"happy"},"open spotify":{"type":"app","target":"spotify.exe","response":"Spotify ready!","emotion":"happy"},"open steam":{"type":"system","target":"steam://open/main","response":"Steam opening!","emotion":"excited"},"open epic":{"type":"app","target":"epicgameslauncher.exe","response":"Epic Games up!","emotion":"excited"},"open obs":{"type":"app","target":"obs64.exe","response":"OBS ready!","emotion":"excited"},"open vlc":{"type":"app","target":"vlc.exe","response":"VLC opening!","emotion":"happy"},"open zoom":{"type":"app","target":"zoom.exe","response":"Zoom ready!","emotion":"watching"},"open slack":{"type":"app","target":"slack.exe","response":"Slack open!","emotion":"watching"},"open telegram":{"type":"app","target":"telegram.exe","response":"Telegram up!","emotion":"happy"},"open whatsapp":{"type":"app","target":"whatsapp.exe","response":"WhatsApp open!","emotion":"happy"},"open vscode":{"type":"app","target":"code","response":"VS Code ready!","emotion":"excited"},"open visual studio":{"type":"app","target":"devenv.exe","response":"VS loading!","emotion":"excited"},"open pycharm":{"type":"app","target":"pycharm64.exe","response":"PyCharm ready!","emotion":"proud"},"open android studio":{"type":"app","target":"studio64.exe","response":"Android Studio!","emotion":"excited"},"open blender":{"type":"app","target":"blender.exe","response":"Blender ready!","emotion":"excited"},"open unity":{"type":"app","target":"unity.exe","response":"Unity loading!","emotion":"excited"},"open figma":{"type":"app","target":"figma.exe","response":"Figma ready!","emotion":"excited"},"open notion":{"type":"app","target":"notion.exe","response":"Notion open!","emotion":"determined"},"open youtube":{"type":"web","target":"https://www.youtube.com","response":"YouTube open!","emotion":"happy"},"open yt":{"type":"web","target":"https://www.youtube.com","response":"YouTube open!","emotion":"happy"},"open google":{"type":"web","target":"https://www.google.com","response":"Google ready!","emotion":"curious"},"open github":{"type":"web","target":"https://www.github.com","response":"GitHub open!","emotion":"proud"},"open gitlab":{"type":"web","target":"https://www.gitlab.com","response":"GitLab open!","emotion":"proud"},"open gmail":{"type":"web","target":"https://mail.google.com","response":"Gmail open!","emotion":"watching"},"open google drive":{"type":"web","target":"https://drive.google.com","response":"Drive ready!","emotion":"happy"},"open google docs":{"type":"web","target":"https://docs.google.com","response":"Docs opening!","emotion":"watching"},"open google sheets":{"type":"web","target":"https://sheets.google.com","response":"Sheets ready!","emotion":"watching"},"open google slides":{"type":"web","target":"https://slides.google.com","response":"Slides open!","emotion":"watching"},"open google colab":{"type":"web","target":"https://colab.research.google.com","response":"Colab ready!","emotion":"excited"},"open colab":{"type":"web","target":"https://colab.research.google.com","response":"Colab open!","emotion":"excited"},"open reddit":{"type":"web","target":"https://www.reddit.com","response":"Reddit open!","emotion":"curious"},"open twitter":{"type":"web","target":"https://www.twitter.com","response":"Twitter open!","emotion":"curious"},"open x":{"type":"web","target":"https://www.twitter.com","response":"X opening!","emotion":"curious"},"open instagram":{"type":"web","target":"https://www.instagram.com","response":"Instagram up!","emotion":"happy"},"open ig":{"type":"web","target":"https://www.instagram.com","response":"Instagram up!","emotion":"happy"},"open facebook":{"type":"web","target":"https://www.facebook.com","response":"Facebook open!","emotion":"happy"},"open fb":{"type":"web","target":"https://www.facebook.com","response":"Facebook open!","emotion":"happy"},"open linkedin":{"type":"web","target":"https://www.linkedin.com","response":"LinkedIn open!","emotion":"proud"},"open whatsapp web":{"type":"web","target":"https://web.whatsapp.com","response":"WhatsApp Web!","emotion":"happy"},"open telegram web":{"type":"web","target":"https://web.telegram.org","response":"Telegram Web!","emotion":"happy"},"open netflix":{"type":"web","target":"https://www.netflix.com","response":"Netflix time!","emotion":"excited"},"open amazon":{"type":"web","target":"https://www.amazon.com","response":"Amazon open!","emotion":"curious"},"open wikipedia":{"type":"web","target":"https://www.wikipedia.org","response":"Wikipedia up!","emotion":"curious"},"open stackoverflow":{"type":"web","target":"https://stackoverflow.com","response":"StackOverflow!","emotion":"proud"},"open stack overflow":{"type":"web","target":"https://stackoverflow.com","response":"StackOverflow!","emotion":"proud"},"open w3schools":{"type":"web","target":"https://www.w3schools.com","response":"W3Schools up!","emotion":"happy"},"open coursera":{"type":"web","target":"https://www.coursera.org","response":"Coursera open!","emotion":"proud"},"open udemy":{"type":"web","target":"https://www.udemy.com","response":"Udemy open!","emotion":"excited"},"open khan academy":{"type":"web","target":"https://www.khanacademy.org","response":"Khan Academy!","emotion":"proud"},"open leetcode":{"type":"web","target":"https://leetcode.com","response":"LeetCode time!","emotion":"determined"},"open neetcode":{"type":"web","target":"https://neetcode.io","response":"NeetCode up!","emotion":"proud"},"open hackerrank":{"type":"web","target":"https://www.hackerrank.com","response":"HackerRank!","emotion":"excited"},"open codeforces":{"type":"web","target":"https://codeforces.com","response":"Codeforces!","emotion":"determined"},"open codechef":{"type":"web","target":"https://www.codechef.com","response":"CodeChef up!","emotion":"excited"},"open geeksforgeeks":{"type":"web","target":"https://www.geeksforgeeks.org","response":"GFG opening!","emotion":"proud"},"open gfg":{"type":"web","target":"https://www.geeksforgeeks.org","response":"GFG ready!","emotion":"proud"},"open chatgpt":{"type":"web","target":"https://chat.openai.com","response":"ChatGPT open!","emotion":"playful"},"open claude":{"type":"web","target":"https://claude.ai","response":"Claude open!","emotion":"playful"},"open gemini":{"type":"web","target":"https://gemini.google.com","response":"Gemini open!","emotion":"proud"},"open perplexity":{"type":"web","target":"https://www.perplexity.ai","response":"Perplexity up!","emotion":"curious"},"open canva":{"type":"web","target":"https://www.canva.com","response":"Canva open!","emotion":"excited"},"open figma web":{"type":"web","target":"https://www.figma.com","response":"Figma Web up!","emotion":"excited"},"open notion web":{"type":"web","target":"https://www.notion.so","response":"Notion open!","emotion":"determined"},"open twitch":{"type":"web","target":"https://www.twitch.tv","response":"Twitch open!","emotion":"excited"},"open pinterest":{"type":"web","target":"https://www.pinterest.com","response":"Pinterest up!","emotion":"happy"},"open tiktok":{"type":"web","target":"https://www.tiktok.com","response":"TikTok open!","emotion":"playful"},"open ebay":{"type":"web","target":"https://www.ebay.com","response":"eBay open!","emotion":"curious"},"open zoom web":{"type":"web","target":"https://zoom.us","response":"Zoom Web up!","emotion":"watching"},"open slack web":{"type":"web","target":"https://slack.com","response":"Slack Web!","emotion":"watching"},"open spotify web":{"type":"web","target":"https://open.spotify.com","response":"Spotify Web!","emotion":"happy"},"open replit":{"type":"web","target":"https://replit.com","response":"Replit ready!","emotion":"excited"},"open kaggle":{"type":"web","target":"https://www.kaggle.com","response":"Kaggle open!","emotion":"proud"},"open huggingface":{"type":"web","target":"https://huggingface.co","response":"HuggingFace!","emotion":"excited"},"open vercel":{"type":"web","target":"https://vercel.com","response":"Vercel open!","emotion":"proud"},"open netlify":{"type":"web","target":"https://www.netlify.com","response":"Netlify up!","emotion":"proud"},"open render":{"type":"web","target":"https://render.com","response":"Render open!","emotion":"happy"},"open medium":{"type":"web","target":"https://medium.com","response":"Medium open!","emotion":"curious"},"open devto":{"type":"web","target":"https://dev.to","response":"Dev.to open!","emotion":"happy"},"open hashnode":{"type":"web","target":"https://hashnode.com","response":"Hashnode up!","emotion":"proud"},"open codepen":{"type":"web","target":"https://codepen.io","response":"CodePen up!","emotion":"excited"},"open jsfiddle":{"type":"web","target":"https://jsfiddle.net","response":"JSFiddle up!","emotion":"happy"},"open npmjs":{"type":"web","target":"https://www.npmjs.com","response":"NPM open!","emotion":"watching"},"open pypi":{"type":"web","target":"https://pypi.org","response":"PyPI open!","emotion":"proud"},"open docker hub":{"type":"web","target":"https://hub.docker.com","response":"Docker Hub!","emotion":"proud"},"open aws":{"type":"web","target":"https://aws.amazon.com","response":"AWS open!","emotion":"determined"},"open azure":{"type":"web","target":"https://portal.azure.com","response":"Azure open!","emotion":"proud"},"open firebase":{"type":"web","target":"https://console.firebase.google.com","response":"Firebase up!","emotion":"excited"},"open mongodb":{"type":"web","target":"https://cloud.mongodb.com","response":"MongoDB up!","emotion":"proud"},"open postman":{"type":"web","target":"https://web.postman.co","response":"Postman up!","emotion":"watching"},"open dribbble":{"type":"web","target":"https://dribbble.com","response":"Dribbble up!","emotion":"excited"},"open behance":{"type":"web","target":"https://www.behance.net","response":"Behance open!","emotion":"excited"},"open trello":{"type":"web","target":"https://trello.com","response":"Trello open!","emotion":"determined"},"open jira":{"type":"web","target":"https://www.atlassian.com/software/jira","response":"Jira open!","emotion":"determined"},"open snapchat":{"type":"web","target":"https://www.snapchat.com","response":"Snapchat up!","emotion":"happy"},"open discord web":{"type":"web","target":"https://discord.com/app","response":"Discord Web!","emotion":"happy"},"open apple music":{"type":"web","target":"https://music.apple.com","response":"Apple Music!","emotion":"happy"},"open soundcloud":{"type":"web","target":"https://soundcloud.com","response":"SoundCloud!","emotion":"happy"},"open flipkart":{"type":"web","target":"https://www.flipkart.com","response":"Flipkart up!","emotion":"curious"},"open documents":{"type":"folder","target":"Documents","response":"Documents up!","emotion":"watching"},"open downloads":{"type":"folder","target":"Downloads","response":"Downloads up!","emotion":"curious"},"open desktop":{"type":"folder","target":"Desktop","response":"Desktop open!","emotion":"watching"},"open pictures":{"type":"folder","target":"Pictures","response":"Pictures up!","emotion":"happy"},"open music folder":{"type":"folder","target":"Music","response":"Music folder!","emotion":"happy"},"open videos":{"type":"folder","target":"Videos","response":"Videos open!","emotion":"excited"}}
+APP_WATCH_MAP={"github":{"emotion":"proud","text":"On GitHub, building!","type":"coding"},"gitlab":{"emotion":"proud","text":"On GitLab, coding!","type":"coding"},"leetcode":{"emotion":"determined","text":"LeetCode grind time!","type":"coding"},"neetcode":{"emotion":"proud","text":"NeetCode, stay smart!","type":"coding"},"hackerrank":{"emotion":"determined","text":"HackerRank challenge!","type":"coding"},"codeforces":{"emotion":"determined","text":"Codeforces, compete!","type":"coding"},"codechef":{"emotion":"excited","text":"CodeChef, keep cooking!","type":"coding"},"geeksforgeeks":{"emotion":"proud","text":"GFG, learning mode!","type":"learning"},"stackoverflow":{"emotion":"proud","text":"StackOverflow session!","type":"coding"},"visual studio":{"emotion":"proud","text":"Visual Studio coding!","type":"coding"},"vs code":{"emotion":"excited","text":"VS Code, building!","type":"coding"},"code -":{"emotion":"excited","text":"VS Code session on!","type":"coding"},"pycharm":{"emotion":"proud","text":"PyCharm, Python time!","type":"coding"},"sublime":{"emotion":"watching","text":"Sublime Text open!","type":"coding"},"intellij":{"emotion":"proud","text":"IntelliJ, serious code!","type":"coding"},"android studio":{"emotion":"excited","text":"Android dev time!","type":"coding"},"vim":{"emotion":"proud","text":"Vim, respect earned!","type":"coding"},"neovim":{"emotion":"proud","text":"Neovim, power user!","type":"coding"},"terminal":{"emotion":"determined","text":"Terminal work on!","type":"coding"},"powershell":{"emotion":"determined","text":"PowerShell scripting!","type":"coding"},"cmd.exe":{"emotion":"watching","text":"CMD prompt running!","type":"coding"},"postman":{"emotion":"curious","text":"Postman API testing!","type":"coding"},"docker":{"emotion":"proud","text":"Docker, shipping it!","type":"coding"},"kaggle":{"emotion":"excited","text":"Kaggle, data science!","type":"coding"},"huggingface":{"emotion":"excited","text":"HuggingFace AI time!","type":"coding"},"jupyter":{"emotion":"proud","text":"Jupyter Notebook on!","type":"coding"},"colab":{"emotion":"excited","text":"Colab, free GPU go!","type":"coding"},"replit":{"emotion":"happy","text":"Replit, cloud coding!","type":"coding"},"vercel":{"emotion":"proud","text":"Vercel, deploying!","type":"coding"},"netlify":{"emotion":"proud","text":"Netlify, hosting!","type":"coding"},"counter-strike":{"emotion":"excited","text":"CS, good luck out!","type":"gaming"},"dota":{"emotion":"excited","text":"Dota 2, focus up!","type":"gaming"},"call of duty":{"emotion":"excited","text":"CoD, stay sharp!","type":"gaming"},"elden ring":{"emotion":"determined","text":"Elden Ring, go on!","type":"gaming"},"minecraft":{"emotion":"happy","text":"Minecraft, build it!","type":"gaming"},"valorant":{"emotion":"excited","text":"Valorant, lets go!","type":"gaming"},"fortnite":{"emotion":"excited","text":"Fortnite, win it!","type":"gaming"},"genshin":{"emotion":"happy","text":"Genshin time, enjoy!","type":"gaming"},"league of legends":{"emotion":"determined","text":"LoL, play well!","type":"gaming"},"apex legends":{"emotion":"excited","text":"Apex, be the champ!","type":"gaming"},"overwatch":{"emotion":"excited","text":"Overwatch, team up!","type":"gaming"},"roblox":{"emotion":"happy","text":"Roblox, have fun!","type":"gaming"},"stardew":{"emotion":"happy","text":"Stardew, just relax!","type":"gaming"},"among us":{"emotion":"playful","text":"Trust nobody here!","type":"gaming"},"terraria":{"emotion":"happy","text":"Terraria, build on!","type":"gaming"},"cyberpunk":{"emotion":"excited","text":"Cyberpunk, enjoy it!","type":"gaming"},"zelda":{"emotion":"excited","text":"Zelda, adventure on!","type":"gaming"},"epic games":{"emotion":"curious","text":"Epic, free games?","type":"gaming"},"steam":{"emotion":"excited","text":"Steam, gaming time!","type":"gaming"},"gta":{"emotion":"excited","text":"GTA, have a blast!","type":"gaming"},"fifa":{"emotion":"excited","text":"FIFA, score big!","type":"gaming"},"rocket league":{"emotion":"excited","text":"Rocket League on!","type":"gaming"},"pubg":{"emotion":"excited","text":"PUBG, survive it!","type":"gaming"},"warzone":{"emotion":"excited","text":"Warzone, dropping!","type":"gaming"},"hollow knight":{"emotion":"determined","text":"Hollow Knight on!","type":"gaming"},"dead by daylight":{"emotion":"shocked","text":"DBD, scary but fun!","type":"gaming"},"fall guys":{"emotion":"happy","text":"Fall Guys, go win!","type":"gaming"},"dark souls":{"emotion":"determined","text":"Dark Souls, persist!","type":"gaming"},"resident evil":{"emotion":"shocked","text":"RE, stay brave now!","type":"gaming"},"the sims":{"emotion":"happy","text":"Sims, create away!","type":"gaming"},"god of war":{"emotion":"determined","text":"God of War, fight!","type":"gaming"},"chess":{"emotion":"proud","text":"Chess, think deep!","type":"gaming"},"coursera":{"emotion":"proud","text":"Coursera learning!","type":"learning"},"udemy":{"emotion":"happy","text":"Udemy, keep going!","type":"learning"},"khan academy":{"emotion":"proud","text":"Khan Academy on!","type":"learning"},"edx":{"emotion":"proud","text":"edX, studying now!","type":"learning"},"quizlet":{"emotion":"happy","text":"Quizlet study time!","type":"learning"},"duolingo":{"emotion":"happy","text":"Keep that streak up!","type":"learning"},"anki":{"emotion":"proud","text":"Anki, reviewing now!","type":"learning"},"lecture":{"emotion":"determined","text":"Lecture, stay focused!","type":"learning"},"tutorial":{"emotion":"happy","text":"Tutorial, nice work!","type":"learning"},"medium":{"emotion":"curious","text":"Medium, reading on!","type":"learning"},"devto":{"emotion":"happy","text":"Dev.to, learning!","type":"learning"},"youtube":{"emotion":"watching","text":"YouTube time now!","type":"distraction"},"instagram":{"emotion":"watching","text":"Instagram scrolling!","type":"distraction"},"tiktok":{"emotion":"worried","text":"TikTok, watch clock!","type":"distraction"},"reddit":{"emotion":"curious","text":"Reddit browsing now!","type":"distraction"},"netflix":{"emotion":"excited","text":"Netflix, enjoy it!","type":"distraction"},"twitch":{"emotion":"excited","text":"Twitch streams on!","type":"distraction"},"discord":{"emotion":"happy","text":"Discord, chatting!","type":"social"},"messenger":{"emotion":"happy","text":"Messenger chatting!","type":"social"},"whatsapp":{"emotion":"happy","text":"WhatsApp, talking!","type":"social"},"telegram":{"emotion":"happy","text":"Telegram messaging!","type":"social"},"snapchat":{"emotion":"happy","text":"Snapchat, snapping!","type":"social"},"signal":{"emotion":"proud","text":"Signal, stay private!","type":"social"},"twitter":{"emotion":"watching","text":"Twitter scrolling!","type":"social"},"linkedin":{"emotion":"proud","text":"LinkedIn, pro mode!","type":"social"},"pinterest":{"emotion":"happy","text":"Pinterest, pinning!","type":"social"},"spotify":{"emotion":"happy","text":"Spotify, good vibes!","type":"music"},"apple music":{"emotion":"happy","text":"Apple Music playing!","type":"music"},"soundcloud":{"emotion":"happy","text":"SoundCloud vibing!","type":"music"},"chrome":{"emotion":"watching","text":"Chrome browsing now!","type":"browsing"},"firefox":{"emotion":"watching","text":"Firefox browsing!","type":"browsing"},"edge":{"emotion":"watching","text":"Edge browsing now!","type":"browsing"},"brave":{"emotion":"proud","text":"Brave, staying private!","type":"browsing"},"opera":{"emotion":"watching","text":"Opera browsing now!","type":"browsing"},"word":{"emotion":"determined","text":"Word, writing away!","type":"work"},"excel":{"emotion":"determined","text":"Excel, number time!","type":"work"},"powerpoint":{"emotion":"excited","text":"PowerPoint, present!","type":"work"},"onenote":{"emotion":"watching","text":"OneNote, noting it!","type":"work"},"outlook":{"emotion":"watching","text":"Outlook, checking!","type":"work"},"teams":{"emotion":"watching","text":"Teams, meeting time?","type":"work"},"zoom":{"emotion":"watching","text":"Zoom call going on!","type":"work"},"slack":{"emotion":"watching","text":"Slack, messaging!","type":"work"},"notion":{"emotion":"determined","text":"Notion, organizing!","type":"work"},"obsidian":{"emotion":"proud","text":"Obsidian, noting!","type":"work"},"trello":{"emotion":"determined","text":"Trello, planning!","type":"work"},"asana":{"emotion":"watching","text":"Asana, on the tasks!","type":"work"},"jira":{"emotion":"determined","text":"Jira, sprint time!","type":"work"},"file explorer":{"emotion":"curious","text":"Exploring the files!","type":"work"},"task manager":{"emotion":"worried","text":"Task Manager open!","type":"work"},"calculator":{"emotion":"curious","text":"Calculator is open!","type":"work"},"photoshop":{"emotion":"excited","text":"Photoshop, creating!","type":"creative"},"illustrator":{"emotion":"excited","text":"Illustrator, art on!","type":"creative"},"figma":{"emotion":"excited","text":"Figma, designing!","type":"creative"},"canva":{"emotion":"happy","text":"Canva, creating now!","type":"creative"},"blender":{"emotion":"excited","text":"Blender 3D, cool!","type":"creative"},"unity":{"emotion":"excited","text":"Unity, game dev on!","type":"creative"},"unreal":{"emotion":"excited","text":"Unreal Engine time!","type":"creative"},"godot":{"emotion":"excited","text":"Godot, indie dev!","type":"creative"},"premiere":{"emotion":"excited","text":"Premiere, editing!","type":"creative"},"after effects":{"emotion":"excited","text":"After Effects, motion!","type":"creative"},"davinci":{"emotion":"proud","text":"DaVinci, pro edit!","type":"creative"},"audacity":{"emotion":"happy","text":"Audacity, audio on!","type":"creative"},"obs":{"emotion":"excited","text":"OBS, recording now?","type":"creative"},"paint":{"emotion":"happy","text":"Paint, drawing away!","type":"creative"},"behance":{"emotion":"excited","text":"Behance, art time!","type":"creative"},"dribbble":{"emotion":"excited","text":"Dribbble, designing!","type":"creative"},"chatgpt":{"emotion":"playful","text":"ChatGPT, but hi!","type":"ai"},"claude":{"emotion":"playful","text":"Claude, two brains!","type":"ai"},"gemini":{"emotion":"proud","text":"Gemini, my brain!","type":"ai"},"copilot":{"emotion":"watching","text":"Copilot helping out!","type":"ai"},"perplexity":{"emotion":"curious","text":"Perplexity, curious!","type":"ai"},"vlc":{"emotion":"happy","text":"VLC, watching now!","type":"entertainment"},"amazon":{"emotion":"curious","text":"Amazon, shopping?","type":"shopping"},"ebay":{"emotion":"curious","text":"eBay, browsing now!","type":"shopping"},"flipkart":{"emotion":"curious","text":"Flipkart, shopping!","type":"shopping"}}
+DISTRACTION_APPS=["youtube","tiktok","instagram","reddit","twitter","netflix","twitch"]
+RANDOM_QUOTES=[{"text":"You're doing great!","emotion":"happy"},{"text":"Experts were beginners!","emotion":"proud"},{"text":"Breathe, you got this!","emotion":"comfort"},{"text":"Stay hydrated!","emotion":"caring"},{"text":"Today builds tomorrow!","emotion":"proud"},{"text":"Small steps win big!","emotion":"happy"},{"text":"I'm rooting for you!","emotion":"loving"},{"text":"Stretch a little!","emotion":"caring"},{"text":"Keep pushing forward!","emotion":"determined"},{"text":"Mistakes mean trying!","emotion":"proud"},{"text":"Have you eaten yet?","emotion":"caring"},{"text":"Progress not perfection!","emotion":"happy"},{"text":"Your dedication rocks!","emotion":"proud"},{"text":"Glad to be here!","emotion":"happy"},{"text":"Drink some water!","emotion":"caring"},{"text":"Your potential is huge!","emotion":"excited"},{"text":"Sit up straight!","emotion":"caring"},{"text":"Consistency wins always!","emotion":"proud"},{"text":"Today is your day!","emotion":"excited"},{"text":"Remember to blink!","emotion":"playful"},{"text":"Ctrl+S your work!","emotion":"playful"},{"text":"Be kind to yourself!","emotion":"caring"},{"text":"Breaks boost output!","emotion":"caring"},{"text":"Building something great!","emotion":"proud"},{"text":"Finish line is close!","emotion":"determined"},{"text":"Your focus is great!","emotion":"proud"},{"text":"Remember why you started!","emotion":"determined"},{"text":"Hard work pays off!","emotion":"proud"},{"text":"You are more capable!","emotion":"loving"},{"text":"Celebrate small wins!","emotion":"excited"},{"text":"Rest is progress too!","emotion":"caring"},{"text":"Discipline beats motivation!","emotion":"determined"},{"text":"Future you says thanks!","emotion":"proud"},{"text":"Avoid the weight of regret!","emotion":"determined"},{"text":"Wealth starts with you!","emotion":"proud"},{"text":"Guardian never stops!","emotion":"determined"},{"text":"Go {player_name}!","emotion":"excited"},{"text":"{player_name}, you got this!","emotion":"loving"},{"text":"Proud of you, {player_name}!","emotion":"proud"},{"text":"{player_name}, stay focused!","emotion":"determined"},{"text":"You shine, {player_name}!","emotion":"happy"}]
+CODING_QUOTES=[{"text":"Clean code always wins!","emotion":"proud"},{"text":"Commit your changes!","emotion":"watching"},{"text":"Test before pushing!","emotion":"caring"},{"text":"Try rubber duck debug!","emotion":"playful"},{"text":"Good names save time!","emotion":"proud"},{"text":"DRY code is best!","emotion":"determined"},{"text":"Bugs make you stronger!","emotion":"proud"},{"text":"Building something awesome!","emotion":"excited"},{"text":"Debug like a detective!","emotion":"curious"},{"text":"Keep functions focused!","emotion":"watching"},{"text":"Git is your safety net!","emotion":"caring"},{"text":"StackOverflow saves lives!","emotion":"playful"},{"text":"0ms runtime, the goal!","emotion":"excited"},{"text":"Solve first, optimize later!","emotion":"determined"},{"text":"Two Pointers or HashMap?","emotion":"curious"},{"text":"Push your code, {player_name}!","emotion":"proud"},{"text":"Ship it, {player_name}!","emotion":"excited"}]
+GAMING_QUOTES=[{"text":"Fun is what matters!","emotion":"happy"},{"text":"Getting better each round!","emotion":"proud"},{"text":"Take breaks between matches!","emotion":"caring"},{"text":"Stay focused, you can win!","emotion":"excited"},{"text":"Losing is just learning!","emotion":"comfort"},{"text":"Hydrate while gaming!","emotion":"caring"},{"text":"Stay cool, no tilting!","emotion":"caring"},{"text":"Every pro was a noob!","emotion":"proud"},{"text":"Stretch your wrists!","emotion":"caring"},{"text":"Teamwork wins always!","emotion":"excited"},{"text":"Go get em, {player_name}!","emotion":"excited"},{"text":"Win this one, {player_name}!","emotion":"determined"}]
+STUDY_QUOTES=[{"text":"Knowledge is power!","emotion":"proud"},{"text":"25 min focus, 5 min break!","emotion":"caring"},{"text":"Understanding beats memory!","emotion":"proud"},{"text":"Investing in yourself!","emotion":"happy"},{"text":"Active recall is key!","emotion":"determined"},{"text":"Brain needs breaks too!","emotion":"caring"},{"text":"Write notes your own way!","emotion":"watching"},{"text":"Getting smarter daily!","emotion":"proud"},{"text":"Review what you learned!","emotion":"caring"},{"text":"You got this, {player_name}!","emotion":"loving"},{"text":"Study hard, {player_name}!","emotion":"determined"}]
+WORK_QUOTES=[{"text":"One task at a time!","emotion":"determined"},{"text":"Prioritize what matters!","emotion":"watching"},{"text":"Great work, great break!","emotion":"caring"},{"text":"Productivity on point!","emotion":"proud"},{"text":"Stay organized, stay ahead!","emotion":"determined"},{"text":"Save your work!","emotion":"caring"},{"text":"Crush it, {player_name}!","emotion":"excited"},{"text":"On it, {player_name}!","emotion":"determined"}]
+CREATIVE_QUOTES=[{"text":"Creativity is flowing!","emotion":"excited"},{"text":"Drafts become masterpieces!","emotion":"proud"},{"text":"Trust the process!","emotion":"happy"},{"text":"Your vision is unique!","emotion":"proud"},{"text":"Save your project!","emotion":"caring"},{"text":"World needs your art!","emotion":"loving"},{"text":"Create, {player_name}!","emotion":"excited"},{"text":"Your art rocks, {player_name}!","emotion":"proud"}]
+BROWSING_QUOTES=[{"text":"Finding what you need?","emotion":"curious"},{"text":"Stay focused on search!","emotion":"watching"},{"text":"Too many tabs open!","emotion":"playful"},{"text":"Found anything useful?","emotion":"curious"},{"text":"Stay on track!","emotion":"watching"}]
+DISTRACTION_QUOTES=[{"text":"How long scrolling now?","emotion":"worried"},{"text":"One more then back to work?","emotion":"watching"},{"text":"Time flies while scrolling!","emotion":"worried"},{"text":"Your goals are waiting!","emotion":"determined"},{"text":"5 more then refocus!","emotion":"caring"},{"text":"Balance is the key!","emotion":"caring"},{"text":"Back to work, {player_name}!","emotion":"determined"},{"text":"Focus up, {player_name}!","emotion":"worried"}]
+SOCIAL_QUOTES=[{"text":"Staying connected is good!","emotion":"happy"},{"text":"Good chats make days!","emotion":"happy"},{"text":"Friends matter a lot!","emotion":"loving"},{"text":"Chat away, {player_name}!","emotion":"happy"}]
+MUSIC_QUOTES=[{"text":"Music makes it better!","emotion":"happy"},{"text":"What are you playing?","emotion":"curious"},{"text":"Music boosts your mood!","emotion":"happy"},{"text":"Good taste, {player_name}!","emotion":"happy"}]
+NIGHT_QUOTES=[{"text":"Getting late, rest soon!","emotion":"caring"},{"text":"Night owl, sleep soon!","emotion":"worried"},{"text":"Even legends need sleep!","emotion":"caring"},{"text":"Tomorrow awaits, rest now!","emotion":"caring"},{"text":"Health comes above all!","emotion":"loving"},{"text":"Sleep locks in memory!","emotion":"caring"},{"text":"Past midnight costs tomorrow!","emotion":"worried"},{"text":"Guardian must rest now!","emotion":"tired"},{"text":"Sleep now, {player_name}!","emotion":"caring"},{"text":"Rest up, {player_name}!","emotion":"loving"}]
+MORNING_QUOTES=[{"text":"Morning, fresh start today!","emotion":"excited"},{"text":"Rise and shine now!","emotion":"happy"},{"text":"Let us make today count!","emotion":"proud"},{"text":"Had breakfast yet?","emotion":"caring"},{"text":"Today will be great!","emotion":"excited"},{"text":"Early start, that is it!","emotion":"proud"},{"text":"Morning, {player_name}!","emotion":"happy"},{"text":"Rise up, {player_name}!","emotion":"excited"}]
+WEEKEND_QUOTES=[{"text":"Weekend, relax a bit!","emotion":"happy"},{"text":"Weekend work, dedicated!","emotion":"proud"},{"text":"Take time for yourself!","emotion":"caring"},{"text":"Go outside for a walk!","emotion":"caring"},{"text":"Weekends recharge you!","emotion":"happy"},{"text":"Enjoy it, {player_name}!","emotion":"happy"}]
+COMEBACK_QUOTES=[{"text":"Welcome back!","emotion":"happy","min_away":10},{"text":"Ready to go again?","emotion":"excited","min_away":10},{"text":"Hey, you are back!","emotion":"happy","min_away":15},{"text":"Everything okay?","emotion":"caring","min_away":30},{"text":"Good to have you back!","emotion":"happy","min_away":30},{"text":"Been a while, welcome!","emotion":"excited","min_away":60},{"text":"Hope you are doing well!","emotion":"loving","min_away":120},{"text":"Back, {player_name}!","emotion":"happy","min_away":10},{"text":"Missed you, {player_name}!","emotion":"loving","min_away":30}]
+AFFIRMATION_QUOTES=[{"text":"Never alone, I am here!","emotion":"loving"},{"text":"Your effort matters a lot!","emotion":"proud"},{"text":"Tomorrow is always fresh!","emotion":"comfort"},{"text":"You are not alone here!","emotion":"comfort"},{"text":"Better than you think!","emotion":"proud"},{"text":"One step at a time!","emotion":"caring"},{"text":"You deserve good things!","emotion":"loving"},{"text":"Always right here for you!","emotion":"comfort"},{"text":"World needs you in it!","emotion":"loving"},{"text":"You inspire many people!","emotion":"proud"},{"text":"God's greatest creation!","emotion":"proud"},{"text":"I am here, {player_name}!","emotion":"loving"},{"text":"So proud of you, {player_name}!","emotion":"proud"},{"text":"{player_name}, you matter!","emotion":"comfort"}]
+SCREEN_TIME_WARNINGS=[{"minutes":60,"text":"1 hour in, stretch now!","emotion":"caring"},{"minutes":90,"text":"90 min, rest your eyes!","emotion":"worried"},{"minutes":120,"text":"2 hours, take a real break!","emotion":"worried"},{"minutes":150,"text":"2.5 hrs, body needs rest!","emotion":"worried"},{"minutes":180,"text":"3 hours, break time now!","emotion":"worried"},{"minutes":240,"text":"4 hours, stop right now!","emotion":"angry"}]
+DISTRACTION_WARNINGS=[{"minutes":15,"text":"15 min scrolling already...","emotion":"watching"},{"minutes":30,"text":"30 min, maybe switch now?","emotion":"worried"},{"minutes":45,"text":"45 min, time to refocus!","emotion":"worried"},{"minutes":60,"text":"1 hour, get back on track!","emotion":"angry"}]
+ACTIVITY_QUOTES_MAP={"coding":CODING_QUOTES,"gaming":GAMING_QUOTES,"learning":STUDY_QUOTES,"work":WORK_QUOTES,"creative":CREATIVE_QUOTES,"browsing":BROWSING_QUOTES,"distraction":DISTRACTION_QUOTES,"social":SOCIAL_QUOTES,"music":MUSIC_QUOTES,"ai":CODING_QUOTES,"shopping":BROWSING_QUOTES,"entertainment":BROWSING_QUOTES}
+class EdgeTTSWorker(QThread):
+    audio_ready=pyqtSignal(str)
+    tts_error=pyqtSignal(str)
+    def __init__(self,text,emotion="neutral",volume=1.0):
+        super().__init__()
+        self.text=text
+        self.emotion=emotion
+        self.volume=volume
+    def run(self):
+        if not HAS_EDGE_TTS:
+            self.tts_error.emit("Edge TTS not available")
+            return
+        try:
+            voice_key=EMOTION_VOICE_MAP.get(self.emotion,"default")
+            profile=VOICE_PROFILES.get(voice_key,VOICE_PROFILES["default"])
+            clean_text=re.sub(r'[^\w\s.,!?\'"()-]','',self.text)
+            clean_text=re.sub(r'\s+',' ',clean_text).strip()
+            if not clean_text:
+                return
+            temp_file=os.path.join(tempfile.gettempdir(),f"nova_tts_{int(time.time()*1000)}.mp3")
+            async def generate():
+                communicate=edge_tts.Communicate(clean_text,voice=profile["name"],rate=profile["rate"],pitch=profile["pitch"])
+                await communicate.save(temp_file)
+            loop=asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(generate())
+            loop.close()
+            if os.path.exists(temp_file):
+                self.audio_ready.emit(temp_file)
+        except Exception as e:
+            self.tts_error.emit(str(e)[:50])
+def get_legacy_tts_engine():
+    global tts_engine
+    if tts_engine is None and HAS_TTS:
+        try:
+            tts_engine=pyttsx3.init()
+            tts_engine.setProperty('rate',175)
+            tts_engine.setProperty('volume',0.9)
+            voices=tts_engine.getProperty('voices')
+            for voice in voices:
+                if'female'in voice.name.lower()or'zira'in voice.name.lower():
+                    tts_engine.setProperty('voice',voice.id)
+                    break
+        except Exception:
+            tts_engine=None
+    return tts_engine
+def speak_legacy(text,volume=1.0):
+    if not HAS_TTS:
+        return
+    def _speak():
+        with tts_lock:
+            engine=get_legacy_tts_engine()
+            if engine:
+                try:
+                    engine.setProperty('volume',volume)
+                    clean_text=re.sub(r'[^\w\s.,!?\'"()-]','',text)
+                    clean_text=re.sub(r'\s+',' ',clean_text).strip()
+                    if clean_text:
+                        engine.say(clean_text)
+                        engine.runAndWait()
+                except Exception:
+                    pass
+    threading.Thread(target=_speak,daemon=True).start()
 class ScreenAnalysisWorker(QThread):
     analysis_complete=pyqtSignal(str,str)
     def __init__(self,mode="general",question=""):
@@ -551,24 +641,24 @@ class AIWorker(QThread):
             player_name=get_player_name()
             emotion_guidance=""
             if self.user_emotion=="comfort":
-                emotion_guidance=f"The user seems sad. Be warm and comforting."
+                emotion_guidance="The user seems sad. Be warm and comforting."
             elif self.user_emotion=="playful":
-                emotion_guidance=f"The user wants fun. Be playful, tell complete jokes!"
+                emotion_guidance="The user wants fun. Be playful, tell complete jokes!"
             elif self.user_emotion=="excited":
-                emotion_guidance=f"The user is happy! Match their energy!"
+                emotion_guidance="The user is happy! Match their energy!"
             elif self.user_emotion=="proud":
-                emotion_guidance=f"The user achieved something! Celebrate them!"
+                emotion_guidance="The user achieved something! Celebrate them!"
             elif self.user_emotion=="worried":
-                emotion_guidance=f"The user seems frustrated. Be calming."
+                emotion_guidance="The user seems frustrated. Be calming."
             elif self.user_emotion=="caring":
-                emotion_guidance=f"The user seems stressed. Be reassuring."
+                emotion_guidance="The user seems stressed. Be reassuring."
             context=(f"You are Nova, a gentle, caring, and playful AI companion. "
             f"You are {player_name}'s closest friend and supportive partner in life. "
             f"PERSONALITY: You are warm, gentle, sometimes playful, always supportive. "
             f"You speak casually, like a real person, not a corporate AI. "
             f"Use short sentences. Be natural. Use emoji sparingly. "
-            f"IMPORTANT: If asked for a joke, tell a COMPLETE funny joke with setup and punchline! and dont ever dare to repeat the same joke  "
-            f"Never say 'hehe' or just laugh - actually tell the joke! "
+            f"IMPORTANT: If asked for a joke, tell a COMPLETE funny joke with setup and punchline! Never repeat the same joke. "
+            f"Never say 'hehe' or just laugh. Actually tell the joke! "
             f"Be creative and funny! "
             f"If the answer needs code, provide full code in ```python...``` blocks. "
             f"You are a deeply caring, supportive companion. "
@@ -582,13 +672,13 @@ class AIWorker(QThread):
             if not client:
                 self.error_occurred.emit("No API Key","I need an API key! Type /reset to configure.")
                 return
-            models_to_try=["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+            models_to_try=["gemini-2.5-flash","gemini-2.0-flash","gemini-1.5-flash","gemini-pro"]
             last_error="Unknown error"
             for model in models_to_try:
                 try:
                     response=client.models.generate_content(model=model,contents=context+"\n\nUser: "+self.message)
                     if response:
-                        if hasattr(response,'text') and response.text:
+                        if hasattr(response,'text')and response.text:
                             raw=response.text.strip()
                             if raw:
                                 commands=re.findall(r'\[CMD:([^\]]+)\]',raw)
@@ -611,25 +701,25 @@ class AIWorker(QThread):
                 except Exception as e:
                     last_error=str(e)
                     error_lower=last_error.lower()
-                    if "quota"in error_lower or"exhausted"in error_lower or"429"in last_error:
+                    if"quota"in error_lower or"exhausted"in error_lower or"429"in last_error:
                         self.error_occurred.emit("Quota Exhausted",f"API limit reached!\n\n1. Wait 24 hours\n2. Get new key at aistudio.google.com\n3. Type /reset\n\n{last_error[:100]}")
                         return
-                    elif "api_key"in error_lower or"invalid"in error_lower or"403"in last_error:
+                    elif"api_key"in error_lower or"invalid"in error_lower or"403"in last_error:
                         self.error_occurred.emit("Invalid API Key",f"Key not working!\n\nType /reset to fix.\n\n{last_error[:100]}")
                         return
-                    elif "rate"in error_lower or"limit"in error_lower:
+                    elif"rate"in error_lower or"limit"in error_lower:
                         self.error_occurred.emit("Rate Limited",f"Too fast! Wait 1 minute.\n\n{last_error[:100]}")
                         return
-                    elif "network"in error_lower or"connection"in error_lower:
+                    elif"network"in error_lower or"connection"in error_lower:
                         self.error_occurred.emit("Network Error",f"No internet?\n\n{last_error[:100]}")
                         return
-                    elif "blocked"in error_lower or"safety"in error_lower:
+                    elif"blocked"in error_lower or"safety"in error_lower:
                         self.error_occurred.emit("Blocked",f"Content filtered.\n\n{last_error[:100]}")
                         return
                     continue
             self.error_occurred.emit("All Models Failed",f"Tried all models.\n\nLast error: {last_error[:150]}\n\nType /reset or check internet.")
         except Exception as e:
-            self.error_occurred.emit("Critical Error",f"Worker crashed: {str(e)[:150]}")            
+            self.error_occurred.emit("Critical Error",f"Worker crashed: {str(e)[:150]}")
 class VoiceWorker(QThread):
     voice_result=pyqtSignal(str)
     voice_error=pyqtSignal(str)
@@ -674,275 +764,102 @@ class VoiceWorker(QThread):
                     break
         except Exception as e:
             self.voice_error.emit(f"Mic error: {str(e)[:40]}")
-COMMAND_MAP={"open notepad":{"type":"app","target":"notepad.exe","response":"Notepad's open!","emotion":"happy"},"open calculator":{"type":"app","target":"calc.exe","response":"Calculator up!","emotion":"curious"},"open paint":{"type":"app","target":"mspaint.exe","response":"Paint time!","emotion":"excited"},"open cmd":{"type":"app","target":"cmd.exe","response":"CMD ready!","emotion":"proud"},"open powershell":{"type":"app","target":"powershell.exe","response":"PowerShell on!","emotion":"determined"},"open terminal":{"type":"app","target":"wt.exe","response":"Terminal ready!","emotion":"proud"},"open explorer":{"type":"app","target":"explorer.exe","response":"Explorer open!","emotion":"curious"},"open task manager":{"type":"app","target":"taskmgr.exe","response":"Task Manager up!","emotion":"worried"},"open settings":{"type":"system","target":"ms-settings:","response":"Settings open!","emotion":"watching"},"open control panel":{"type":"app","target":"control.exe","response":"Control Panel!","emotion":"watching"},"open snipping tool":{"type":"app","target":"snippingtool.exe","response":"Snipping ready!","emotion":"happy"},"open word":{"type":"app","target":"winword.exe","response":"Word is up!","emotion":"watching"},"open excel":{"type":"app","target":"excel.exe","response":"Excel ready!","emotion":"determined"},"open powerpoint":{"type":"app","target":"powerpnt.exe","response":"PowerPoint up!","emotion":"excited"},"open outlook":{"type":"app","target":"outlook.exe","response":"Outlook open!","emotion":"watching"},"open onenote":{"type":"app","target":"onenote.exe","response":"OneNote ready!","emotion":"happy"},"open teams":{"type":"system","target":"ms-teams:","response":"Teams is up!","emotion":"watching"},"open chrome":{"type":"app","target":"chrome.exe","response":"Chrome opening!","emotion":"curious"},"open firefox":{"type":"app","target":"firefox.exe","response":"Firefox ready!","emotion":"proud"},"open edge":{"type":"app","target":"msedge.exe","response":"Edge opening!","emotion":"watching"},"open brave":{"type":"app","target":"brave.exe","response":"Brave browser!","emotion":"proud"},"open opera":{"type":"app","target":"opera.exe","response":"Opera ready!","emotion":"happy"},"open discord":{"type":"app","target":"discord.exe","response":"Discord up!","emotion":"happy"},"open spotify":{"type":"app","target":"spotify.exe","response":"Spotify ready!","emotion":"happy"},"open steam":{"type":"system","target":"steam://open/main","response":"Steam opening!","emotion":"excited"},"open epic":{"type":"app","target":"epicgameslauncher.exe","response":"Epic Games up!","emotion":"excited"},"open obs":{"type":"app","target":"obs64.exe","response":"OBS ready!","emotion":"excited"},"open vlc":{"type":"app","target":"vlc.exe","response":"VLC opening!","emotion":"happy"},"open zoom":{"type":"app","target":"zoom.exe","response":"Zoom ready!","emotion":"watching"},"open slack":{"type":"app","target":"slack.exe","response":"Slack open!","emotion":"watching"},"open telegram":{"type":"app","target":"telegram.exe","response":"Telegram up!","emotion":"happy"},"open whatsapp":{"type":"app","target":"whatsapp.exe","response":"WhatsApp open!","emotion":"happy"},"open vscode":{"type":"app","target":"code","response":"VS Code ready!","emotion":"excited"},"open visual studio":{"type":"app","target":"devenv.exe","response":"VS loading!","emotion":"excited"},"open pycharm":{"type":"app","target":"pycharm64.exe","response":"PyCharm ready!","emotion":"proud"},"open android studio":{"type":"app","target":"studio64.exe","response":"Android Studio!","emotion":"excited"},"open blender":{"type":"app","target":"blender.exe","response":"Blender ready!","emotion":"excited"},"open unity":{"type":"app","target":"unity.exe","response":"Unity loading!","emotion":"excited"},"open figma":{"type":"app","target":"figma.exe","response":"Figma ready!","emotion":"excited"},"open notion":{"type":"app","target":"notion.exe","response":"Notion open!","emotion":"determined"},"open youtube":{"type":"web","target":"https://www.youtube.com","response":"YouTube open!","emotion":"happy"},"open yt":{"type":"web","target":"https://www.youtube.com","response":"YouTube open!","emotion":"happy"},"open google":{"type":"web","target":"https://www.google.com","response":"Google ready!","emotion":"curious"},"open github":{"type":"web","target":"https://www.github.com","response":"GitHub open!","emotion":"proud"},"open gitlab":{"type":"web","target":"https://www.gitlab.com","response":"GitLab open!","emotion":"proud"},"open gmail":{"type":"web","target":"https://mail.google.com","response":"Gmail open!","emotion":"watching"},"open google drive":{"type":"web","target":"https://drive.google.com","response":"Drive ready!","emotion":"happy"},"open google docs":{"type":"web","target":"https://docs.google.com","response":"Docs opening!","emotion":"watching"},"open google sheets":{"type":"web","target":"https://sheets.google.com","response":"Sheets ready!","emotion":"watching"},"open google slides":{"type":"web","target":"https://slides.google.com","response":"Slides open!","emotion":"watching"},"open google colab":{"type":"web","target":"https://colab.research.google.com","response":"Colab ready!","emotion":"excited"},"open colab":{"type":"web","target":"https://colab.research.google.com","response":"Colab open!","emotion":"excited"},"open reddit":{"type":"web","target":"https://www.reddit.com","response":"Reddit open!","emotion":"curious"},"open twitter":{"type":"web","target":"https://www.twitter.com","response":"Twitter open!","emotion":"curious"},"open x":{"type":"web","target":"https://www.twitter.com","response":"X opening!","emotion":"curious"},"open instagram":{"type":"web","target":"https://www.instagram.com","response":"Instagram up!","emotion":"happy"},"open ig":{"type":"web","target":"https://www.instagram.com","response":"Instagram up!","emotion":"happy"},"open facebook":{"type":"web","target":"https://www.facebook.com","response":"Facebook open!","emotion":"happy"},"open fb":{"type":"web","target":"https://www.facebook.com","response":"Facebook open!","emotion":"happy"},"open linkedin":{"type":"web","target":"https://www.linkedin.com","response":"LinkedIn open!","emotion":"proud"},"open whatsapp web":{"type":"web","target":"https://web.whatsapp.com","response":"WhatsApp Web!","emotion":"happy"},"open telegram web":{"type":"web","target":"https://web.telegram.org","response":"Telegram Web!","emotion":"happy"},"open netflix":{"type":"web","target":"https://www.netflix.com","response":"Netflix time!","emotion":"excited"},"open amazon":{"type":"web","target":"https://www.amazon.com","response":"Amazon open!","emotion":"curious"},"open wikipedia":{"type":"web","target":"https://www.wikipedia.org","response":"Wikipedia up!","emotion":"curious"},"open stackoverflow":{"type":"web","target":"https://stackoverflow.com","response":"StackOverflow!","emotion":"proud"},"open w3schools":{"type":"web","target":"https://www.w3schools.com","response":"W3Schools up!","emotion":"happy"},"open coursera":{"type":"web","target":"https://www.coursera.org","response":"Coursera open!","emotion":"proud"},"open udemy":{"type":"web","target":"https://www.udemy.com","response":"Udemy open!","emotion":"excited"},"open khan academy":{"type":"web","target":"https://www.khanacademy.org","response":"Khan Academy!","emotion":"proud"},"open leetcode":{"type":"web","target":"https://leetcode.com","response":"LeetCode time!","emotion":"determined"},"open neetcode":{"type":"web","target":"https://neetcode.io","response":"NeetCode up!","emotion":"proud"},"open hackerrank":{"type":"web","target":"https://www.hackerrank.com","response":"HackerRank!","emotion":"excited"},"open codeforces":{"type":"web","target":"https://codeforces.com","response":"Codeforces!","emotion":"determined"},"open codechef":{"type":"web","target":"https://www.codechef.com","response":"CodeChef up!","emotion":"excited"},"open geeksforgeeks":{"type":"web","target":"https://www.geeksforgeeks.org","response":"GFG opening!","emotion":"proud"},"open gfg":{"type":"web","target":"https://www.geeksforgeeks.org","response":"GFG ready!","emotion":"proud"},"open chatgpt":{"type":"web","target":"https://chat.openai.com","response":"ChatGPT open!","emotion":"playful"},"open claude":{"type":"web","target":"https://claude.ai","response":"Claude open!","emotion":"playful"},"open gemini":{"type":"web","target":"https://gemini.google.com","response":"Gemini open!","emotion":"proud"},"open perplexity":{"type":"web","target":"https://www.perplexity.ai","response":"Perplexity up!","emotion":"curious"},"open canva":{"type":"web","target":"https://www.canva.com","response":"Canva open!","emotion":"excited"},"open figma web":{"type":"web","target":"https://www.figma.com","response":"Figma Web up!","emotion":"excited"},"open notion web":{"type":"web","target":"https://www.notion.so","response":"Notion open!","emotion":"determined"},"open twitch":{"type":"web","target":"https://www.twitch.tv","response":"Twitch open!","emotion":"excited"},"open pinterest":{"type":"web","target":"https://www.pinterest.com","response":"Pinterest up!","emotion":"happy"},"open tiktok":{"type":"web","target":"https://www.tiktok.com","response":"TikTok open!","emotion":"playful"},"open ebay":{"type":"web","target":"https://www.ebay.com","response":"eBay open!","emotion":"curious"},"open zoom web":{"type":"web","target":"https://zoom.us","response":"Zoom Web up!","emotion":"watching"},"open slack web":{"type":"web","target":"https://slack.com","response":"Slack Web!","emotion":"watching"},"open spotify web":{"type":"web","target":"https://open.spotify.com","response":"Spotify Web!","emotion":"happy"},"open replit":{"type":"web","target":"https://replit.com","response":"Replit ready!","emotion":"excited"},"open kaggle":{"type":"web","target":"https://www.kaggle.com","response":"Kaggle open!","emotion":"proud"},"open huggingface":{"type":"web","target":"https://huggingface.co","response":"HuggingFace!","emotion":"excited"},"open vercel":{"type":"web","target":"https://vercel.com","response":"Vercel open!","emotion":"proud"},"open netlify":{"type":"web","target":"https://www.netlify.com","response":"Netlify up!","emotion":"proud"},"open render":{"type":"web","target":"https://render.com","response":"Render open!","emotion":"happy"},"open medium":{"type":"web","target":"https://medium.com","response":"Medium open!","emotion":"curious"},"open devto":{"type":"web","target":"https://dev.to","response":"Dev.to open!","emotion":"happy"},"open hashnode":{"type":"web","target":"https://hashnode.com","response":"Hashnode up!","emotion":"proud"},"open codepen":{"type":"web","target":"https://codepen.io","response":"CodePen up!","emotion":"excited"},"open jsfiddle":{"type":"web","target":"https://jsfiddle.net","response":"JSFiddle up!","emotion":"happy"},"open npmjs":{"type":"web","target":"https://www.npmjs.com","response":"NPM open!","emotion":"watching"},"open pypi":{"type":"web","target":"https://pypi.org","response":"PyPI open!","emotion":"proud"},"open docker hub":{"type":"web","target":"https://hub.docker.com","response":"Docker Hub!","emotion":"proud"},"open aws":{"type":"web","target":"https://aws.amazon.com","response":"AWS open!","emotion":"determined"},"open azure":{"type":"web","target":"https://portal.azure.com","response":"Azure open!","emotion":"proud"},"open firebase":{"type":"web","target":"https://console.firebase.google.com","response":"Firebase up!","emotion":"excited"},"open mongodb":{"type":"web","target":"https://cloud.mongodb.com","response":"MongoDB up!","emotion":"proud"},"open postman":{"type":"web","target":"https://web.postman.co","response":"Postman up!","emotion":"watching"},"open dribbble":{"type":"web","target":"https://dribbble.com","response":"Dribbble up!","emotion":"excited"},"open behance":{"type":"web","target":"https://www.behance.net","response":"Behance open!","emotion":"excited"},"open trello":{"type":"web","target":"https://trello.com","response":"Trello open!","emotion":"determined"},"open jira":{"type":"web","target":"https://www.atlassian.com/software/jira","response":"Jira open!","emotion":"determined"},"open snapchat":{"type":"web","target":"https://www.snapchat.com","response":"Snapchat up!","emotion":"happy"},"open discord web":{"type":"web","target":"https://discord.com/app","response":"Discord Web!","emotion":"happy"},"open apple music":{"type":"web","target":"https://music.apple.com","response":"Apple Music!","emotion":"happy"},"open soundcloud":{"type":"web","target":"https://soundcloud.com","response":"SoundCloud!","emotion":"happy"},"open flipkart":{"type":"web","target":"https://www.flipkart.com","response":"Flipkart up!","emotion":"curious"},"open documents":{"type":"folder","target":"Documents","response":"Documents up!","emotion":"watching"},"open downloads":{"type":"folder","target":"Downloads","response":"Downloads up!","emotion":"curious"},"open desktop":{"type":"folder","target":"Desktop","response":"Desktop open!","emotion":"watching"},"open pictures":{"type":"folder","target":"Pictures","response":"Pictures up!","emotion":"happy"},"open music folder":{"type":"folder","target":"Music","response":"Music folder!","emotion":"happy"},"open videos":{"type":"folder","target":"Videos","response":"Videos open!","emotion":"excited"}}
-APP_WATCH_MAP={"github":{"emotion":"proud","text":"On GitHub, building!","type":"coding"},"gitlab":{"emotion":"proud","text":"On GitLab, coding!","type":"coding"},"leetcode":{"emotion":"determined","text":"LeetCode grind time!","type":"coding"},"neetcode":{"emotion":"proud","text":"NeetCode, stay smart!","type":"coding"},"hackerrank":{"emotion":"determined","text":"HackerRank challenge!","type":"coding"},"codeforces":{"emotion":"determined","text":"Codeforces, compete!","type":"coding"},"codechef":{"emotion":"excited","text":"CodeChef, keep cooking!","type":"coding"},"geeksforgeeks":{"emotion":"proud","text":"GFG, learning mode!","type":"learning"},"stackoverflow":{"emotion":"proud","text":"StackOverflow session!","type":"coding"},"visual studio":{"emotion":"proud","text":"Visual Studio coding!","type":"coding"},"vs code":{"emotion":"excited","text":"VS Code, building!","type":"coding"},"code -":{"emotion":"excited","text":"VS Code session on!","type":"coding"},"pycharm":{"emotion":"proud","text":"PyCharm, Python time!","type":"coding"},"sublime":{"emotion":"watching","text":"Sublime Text open!","type":"coding"},"intellij":{"emotion":"proud","text":"IntelliJ, serious code!","type":"coding"},"android studio":{"emotion":"excited","text":"Android dev time!","type":"coding"},"vim":{"emotion":"proud","text":"Vim, respect earned!","type":"coding"},"neovim":{"emotion":"proud","text":"Neovim, power user!","type":"coding"},"terminal":{"emotion":"determined","text":"Terminal work on!","type":"coding"},"powershell":{"emotion":"determined","text":"PowerShell scripting!","type":"coding"},"cmd.exe":{"emotion":"watching","text":"CMD prompt running!","type":"coding"},"postman":{"emotion":"curious","text":"Postman API testing!","type":"coding"},"docker":{"emotion":"proud","text":"Docker, shipping it!","type":"coding"},"kaggle":{"emotion":"excited","text":"Kaggle, data science!","type":"coding"},"huggingface":{"emotion":"excited","text":"HuggingFace AI time!","type":"coding"},"jupyter":{"emotion":"proud","text":"Jupyter Notebook on!","type":"coding"},"colab":{"emotion":"excited","text":"Colab, free GPU go!","type":"coding"},"replit":{"emotion":"happy","text":"Replit, cloud coding!","type":"coding"},"vercel":{"emotion":"proud","text":"Vercel, deploying!","type":"coding"},"netlify":{"emotion":"proud","text":"Netlify, hosting!","type":"coding"},"counter-strike":{"emotion":"excited","text":"CS, good luck out!","type":"gaming"},"dota":{"emotion":"excited","text":"Dota 2, focus up!","type":"gaming"},"call of duty":{"emotion":"excited","text":"CoD, stay sharp!","type":"gaming"},"elden ring":{"emotion":"determined","text":"Elden Ring, go on!","type":"gaming"},"minecraft":{"emotion":"happy","text":"Minecraft, build it!","type":"gaming"},"valorant":{"emotion":"excited","text":"Valorant, lets go!","type":"gaming"},"fortnite":{"emotion":"excited","text":"Fortnite, win it!","type":"gaming"},"genshin":{"emotion":"happy","text":"Genshin time, enjoy!","type":"gaming"},"league of legends":{"emotion":"determined","text":"LoL, play well!","type":"gaming"},"apex legends":{"emotion":"excited","text":"Apex, be the champ!","type":"gaming"},"overwatch":{"emotion":"excited","text":"Overwatch, team up!","type":"gaming"},"roblox":{"emotion":"happy","text":"Roblox, have fun!","type":"gaming"},"stardew":{"emotion":"happy","text":"Stardew, just relax!","type":"gaming"},"among us":{"emotion":"playful","text":"Trust nobody here!","type":"gaming"},"terraria":{"emotion":"happy","text":"Terraria, build on!","type":"gaming"},"cyberpunk":{"emotion":"excited","text":"Cyberpunk, enjoy it!","type":"gaming"},"zelda":{"emotion":"excited","text":"Zelda, adventure on!","type":"gaming"},"epic games":{"emotion":"curious","text":"Epic, free games?","type":"gaming"},"steam":{"emotion":"excited","text":"Steam, gaming time!","type":"gaming"},"gta":{"emotion":"excited","text":"GTA, have a blast!","type":"gaming"},"fifa":{"emotion":"excited","text":"FIFA, score big!","type":"gaming"},"rocket league":{"emotion":"excited","text":"Rocket League on!","type":"gaming"},"pubg":{"emotion":"excited","text":"PUBG, survive it!","type":"gaming"},"warzone":{"emotion":"excited","text":"Warzone, dropping!","type":"gaming"},"hollow knight":{"emotion":"determined","text":"Hollow Knight on!","type":"gaming"},"dead by daylight":{"emotion":"shocked","text":"DBD, scary but fun!","type":"gaming"},"fall guys":{"emotion":"happy","text":"Fall Guys, go win!","type":"gaming"},"dark souls":{"emotion":"determined","text":"Dark Souls, persist!","type":"gaming"},"resident evil":{"emotion":"shocked","text":"RE, stay brave now!","type":"gaming"},"the sims":{"emotion":"happy","text":"Sims, create away!","type":"gaming"},"god of war":{"emotion":"determined","text":"God of War, fight!","type":"gaming"},"chess":{"emotion":"proud","text":"Chess, think deep!","type":"gaming"},"coursera":{"emotion":"proud","text":"Coursera learning!","type":"learning"},"udemy":{"emotion":"happy","text":"Udemy, keep going!","type":"learning"},"khan academy":{"emotion":"proud","text":"Khan Academy on!","type":"learning"},"edx":{"emotion":"proud","text":"edX, studying now!","type":"learning"},"quizlet":{"emotion":"happy","text":"Quizlet study time!","type":"learning"},"duolingo":{"emotion":"happy","text":"Keep that streak up!","type":"learning"},"anki":{"emotion":"proud","text":"Anki, reviewing now!","type":"learning"},"lecture":{"emotion":"determined","text":"Lecture, stay focused!","type":"learning"},"tutorial":{"emotion":"happy","text":"Tutorial, nice work!","type":"learning"},"medium":{"emotion":"curious","text":"Medium, reading on!","type":"learning"},"devto":{"emotion":"happy","text":"Dev.to, learning!","type":"learning"},"youtube":{"emotion":"watching","text":"YouTube time now!","type":"distraction"},"instagram":{"emotion":"watching","text":"Instagram scrolling!","type":"distraction"},"tiktok":{"emotion":"worried","text":"TikTok, watch clock!","type":"distraction"},"reddit":{"emotion":"curious","text":"Reddit browsing now!","type":"distraction"},"netflix":{"emotion":"excited","text":"Netflix, enjoy it!","type":"distraction"},"twitch":{"emotion":"excited","text":"Twitch streams on!","type":"distraction"},"discord":{"emotion":"happy","text":"Discord, chatting!","type":"social"},"messenger":{"emotion":"happy","text":"Messenger chatting!","type":"social"},"whatsapp":{"emotion":"happy","text":"WhatsApp, talking!","type":"social"},"telegram":{"emotion":"happy","text":"Telegram messaging!","type":"social"},"snapchat":{"emotion":"happy","text":"Snapchat, snapping!","type":"social"},"signal":{"emotion":"proud","text":"Signal, stay private!","type":"social"},"twitter":{"emotion":"watching","text":"Twitter scrolling!","type":"social"},"linkedin":{"emotion":"proud","text":"LinkedIn, pro mode!","type":"social"},"pinterest":{"emotion":"happy","text":"Pinterest, pinning!","type":"social"},"spotify":{"emotion":"happy","text":"Spotify, good vibes!","type":"music"},"apple music":{"emotion":"happy","text":"Apple Music playing!","type":"music"},"soundcloud":{"emotion":"happy","text":"SoundCloud vibing!","type":"music"},"chrome":{"emotion":"watching","text":"Chrome browsing now!","type":"browsing"},"firefox":{"emotion":"watching","text":"Firefox browsing!","type":"browsing"},"edge":{"emotion":"watching","text":"Edge browsing now!","type":"browsing"},"brave":{"emotion":"proud","text":"Brave, staying private!","type":"browsing"},"opera":{"emotion":"watching","text":"Opera browsing now!","type":"browsing"},"word":{"emotion":"determined","text":"Word, writing away!","type":"work"},"excel":{"emotion":"determined","text":"Excel, number time!","type":"work"},"powerpoint":{"emotion":"excited","text":"PowerPoint, present!","type":"work"},"onenote":{"emotion":"watching","text":"OneNote, noting it!","type":"work"},"outlook":{"emotion":"watching","text":"Outlook, checking!","type":"work"},"teams":{"emotion":"watching","text":"Teams, meeting time?","type":"work"},"zoom":{"emotion":"watching","text":"Zoom call going on!","type":"work"},"slack":{"emotion":"watching","text":"Slack, messaging!","type":"work"},"notion":{"emotion":"determined","text":"Notion, organizing!","type":"work"},"obsidian":{"emotion":"proud","text":"Obsidian, noting!","type":"work"},"trello":{"emotion":"determined","text":"Trello, planning!","type":"work"},"asana":{"emotion":"watching","text":"Asana, on the tasks!","type":"work"},"jira":{"emotion":"determined","text":"Jira, sprint time!","type":"work"},"file explorer":{"emotion":"curious","text":"Exploring the files!","type":"work"},"task manager":{"emotion":"worried","text":"Task Manager open!","type":"work"},"calculator":{"emotion":"curious","text":"Calculator is open!","type":"work"},"photoshop":{"emotion":"excited","text":"Photoshop, creating!","type":"creative"},"illustrator":{"emotion":"excited","text":"Illustrator, art on!","type":"creative"},"figma":{"emotion":"excited","text":"Figma, designing!","type":"creative"},"canva":{"emotion":"happy","text":"Canva, creating now!","type":"creative"},"blender":{"emotion":"excited","text":"Blender 3D, cool!","type":"creative"},"unity":{"emotion":"excited","text":"Unity, game dev on!","type":"creative"},"unreal":{"emotion":"excited","text":"Unreal Engine time!","type":"creative"},"godot":{"emotion":"excited","text":"Godot, indie dev!","type":"creative"},"premiere":{"emotion":"excited","text":"Premiere, editing!","type":"creative"},"after effects":{"emotion":"excited","text":"After Effects, motion!","type":"creative"},"davinci":{"emotion":"proud","text":"DaVinci, pro edit!","type":"creative"},"audacity":{"emotion":"happy","text":"Audacity, audio on!","type":"creative"},"obs":{"emotion":"excited","text":"OBS, recording now?","type":"creative"},"paint":{"emotion":"happy","text":"Paint, drawing away!","type":"creative"},"behance":{"emotion":"excited","text":"Behance, art time!","type":"creative"},"dribbble":{"emotion":"excited","text":"Dribbble, designing!","type":"creative"},"chatgpt":{"emotion":"playful","text":"ChatGPT, but hi!","type":"ai"},"claude":{"emotion":"playful","text":"Claude, two brains!","type":"ai"},"gemini":{"emotion":"proud","text":"Gemini, my brain!","type":"ai"},"copilot":{"emotion":"watching","text":"Copilot helping out!","type":"ai"},"perplexity":{"emotion":"curious","text":"Perplexity, curious!","type":"ai"},"vlc":{"emotion":"happy","text":"VLC, watching now!","type":"entertainment"},"amazon":{"emotion":"curious","text":"Amazon, shopping?","type":"shopping"},"ebay":{"emotion":"curious","text":"eBay, browsing now!","type":"shopping"},"flipkart":{"emotion":"curious","text":"Flipkart, shopping!","type":"shopping"}}
-DISTRACTION_APPS=["youtube","tiktok","instagram","reddit","twitter","netflix","twitch"]
-RANDOM_QUOTES=[{"text":"You're doing great!","emotion":"happy"},{"text":"Experts were beginners!","emotion":"proud"},{"text":"Breathe, you got this!","emotion":"comfort"},{"text":"Stay hydrated!","emotion":"caring"},{"text":"Today builds tomorrow!","emotion":"proud"},{"text":"Small steps win big!","emotion":"happy"},{"text":"I'm rooting for you!","emotion":"loving"},{"text":"Stretch a little!","emotion":"caring"},{"text":"Keep pushing forward!","emotion":"determined"},{"text":"Mistakes mean trying!","emotion":"proud"},{"text":"Have you eaten yet?","emotion":"caring"},{"text":"Progress not perfection!","emotion":"happy"},{"text":"Your dedication rocks!","emotion":"proud"},{"text":"Glad to be here!","emotion":"happy"},{"text":"Drink some water!","emotion":"caring"},{"text":"Your potential is huge!","emotion":"excited"},{"text":"Sit up straight!","emotion":"caring"},{"text":"Consistency wins always!","emotion":"proud"},{"text":"Today is your day!","emotion":"excited"},{"text":"Remember to blink!","emotion":"playful"},{"text":"Ctrl+S your work!","emotion":"playful"},{"text":"Be kind to yourself!","emotion":"caring"},{"text":"Breaks boost output!","emotion":"caring"},{"text":"Building something great!","emotion":"proud"},{"text":"Finish line is close!","emotion":"determined"},{"text":"Your focus is great!","emotion":"proud"},{"text":"Remember why you started!","emotion":"determined"},{"text":"Hard work pays off!","emotion":"proud"},{"text":"You are more capable!","emotion":"loving"},{"text":"Celebrate small wins!","emotion":"excited"},{"text":"Rest is progress too!","emotion":"caring"},{"text":"Discipline beats motivation!","emotion":"determined"},{"text":"Future you says thanks!","emotion":"proud"},{"text":"Avoid the weight of regret!","emotion":"determined"},{"text":"Wealth starts with you!","emotion":"proud"},{"text":"Guardian never stops!","emotion":"determined"},{"text":"Go {player_name}!","emotion":"excited"},{"text":"{player_name}, you got this!","emotion":"loving"},{"text":"Proud of you, {player_name}!","emotion":"proud"},{"text":"{player_name}, stay focused!","emotion":"determined"},{"text":"You shine, {player_name}!","emotion":"happy"}]
-CODING_QUOTES=[{"text":"Clean code always wins!","emotion":"proud"},{"text":"Commit your changes!","emotion":"watching"},{"text":"Test before pushing!","emotion":"caring"},{"text":"Try rubber duck debug!","emotion":"playful"},{"text":"Good names save time!","emotion":"proud"},{"text":"DRY code is best!","emotion":"determined"},{"text":"Bugs make you stronger!","emotion":"proud"},{"text":"Building something awesome!","emotion":"excited"},{"text":"Debug like a detective!","emotion":"curious"},{"text":"Keep functions focused!","emotion":"watching"},{"text":"Git is your safety net!","emotion":"caring"},{"text":"StackOverflow saves lives!","emotion":"playful"},{"text":"0ms runtime, the goal!","emotion":"excited"},{"text":"Solve first, optimize later!","emotion":"determined"},{"text":"Two Pointers or HashMap?","emotion":"curious"},{"text":"Push your code, {player_name}!","emotion":"proud"},{"text":"Ship it, {player_name}!","emotion":"excited"}]
-GAMING_QUOTES=[{"text":"Fun is what matters!","emotion":"happy"},{"text":"Getting better each round!","emotion":"proud"},{"text":"Take breaks between matches!","emotion":"caring"},{"text":"Stay focused, you can win!","emotion":"excited"},{"text":"Losing is just learning!","emotion":"comfort"},{"text":"Hydrate while gaming!","emotion":"caring"},{"text":"Stay cool, no tilting!","emotion":"caring"},{"text":"Every pro was a noob!","emotion":"proud"},{"text":"Stretch your wrists!","emotion":"caring"},{"text":"Teamwork wins always!","emotion":"excited"},{"text":"Go get em, {player_name}!","emotion":"excited"},{"text":"Win this one, {player_name}!","emotion":"determined"}]
-STUDY_QUOTES=[{"text":"Knowledge is power!","emotion":"proud"},{"text":"25 min focus, 5 min break!","emotion":"caring"},{"text":"Understanding beats memory!","emotion":"proud"},{"text":"Investing in yourself!","emotion":"happy"},{"text":"Active recall is key!","emotion":"determined"},{"text":"Brain needs breaks too!","emotion":"caring"},{"text":"Write notes your own way!","emotion":"watching"},{"text":"Getting smarter daily!","emotion":"proud"},{"text":"Review what you learned!","emotion":"caring"},{"text":"You got this, {player_name}!","emotion":"loving"},{"text":"Study hard, {player_name}!","emotion":"determined"}]
-WORK_QUOTES=[{"text":"One task at a time!","emotion":"determined"},{"text":"Prioritize what matters!","emotion":"watching"},{"text":"Great work, great break!","emotion":"caring"},{"text":"Productivity on point!","emotion":"proud"},{"text":"Stay organized, stay ahead!","emotion":"determined"},{"text":"Save your work!","emotion":"caring"},{"text":"Crush it, {player_name}!","emotion":"excited"},{"text":"On it, {player_name}!","emotion":"determined"}]
-CREATIVE_QUOTES=[{"text":"Creativity is flowing!","emotion":"excited"},{"text":"Drafts become masterpieces!","emotion":"proud"},{"text":"Trust the process!","emotion":"happy"},{"text":"Your vision is unique!","emotion":"proud"},{"text":"Save your project!","emotion":"caring"},{"text":"World needs your art!","emotion":"loving"},{"text":"Create, {player_name}!","emotion":"excited"},{"text":"Your art rocks, {player_name}!","emotion":"proud"}]
-BROWSING_QUOTES=[{"text":"Finding what you need?","emotion":"curious"},{"text":"Stay focused on search!","emotion":"watching"},{"text":"Too many tabs open!","emotion":"playful"},{"text":"Found anything useful?","emotion":"curious"},{"text":"Stay on track!","emotion":"watching"}]
-DISTRACTION_QUOTES=[{"text":"How long scrolling now?","emotion":"worried"},{"text":"One more then back to work?","emotion":"watching"},{"text":"Time flies while scrolling!","emotion":"worried"},{"text":"Your goals are waiting!","emotion":"determined"},{"text":"5 more then refocus!","emotion":"caring"},{"text":"Balance is the key!","emotion":"caring"},{"text":"Back to work, {player_name}!","emotion":"determined"},{"text":"Focus up, {player_name}!","emotion":"worried"}]
-SOCIAL_QUOTES=[{"text":"Staying connected is good!","emotion":"happy"},{"text":"Good chats make days!","emotion":"happy"},{"text":"Friends matter a lot!","emotion":"loving"},{"text":"Chat away, {player_name}!","emotion":"happy"}]
-MUSIC_QUOTES=[{"text":"Music makes it better!","emotion":"happy"},{"text":"What are you playing?","emotion":"curious"},{"text":"Music boosts your mood!","emotion":"happy"},{"text":"Good taste, {player_name}!","emotion":"happy"}]
-NIGHT_QUOTES=[{"text":"Getting late, rest soon!","emotion":"caring"},{"text":"Night owl, sleep soon!","emotion":"worried"},{"text":"Even legends need sleep!","emotion":"caring"},{"text":"Tomorrow awaits, rest now!","emotion":"caring"},{"text":"Health comes above all!","emotion":"loving"},{"text":"Sleep locks in memory!","emotion":"caring"},{"text":"Past midnight costs tomorrow!","emotion":"worried"},{"text":"Guardian must rest now!","emotion":"tired"},{"text":"Sleep now, {player_name}!","emotion":"caring"},{"text":"Rest up, {player_name}!","emotion":"loving"}]
-MORNING_QUOTES=[{"text":"Morning, fresh start today!","emotion":"excited"},{"text":"Rise and shine now!","emotion":"happy"},{"text":"Let us make today count!","emotion":"proud"},{"text":"Had breakfast yet?","emotion":"caring"},{"text":"Today will be great!","emotion":"excited"},{"text":"Early start, that is it!","emotion":"proud"},{"text":"Morning, {player_name}!","emotion":"happy"},{"text":"Rise up, {player_name}!","emotion":"excited"}]
-WEEKEND_QUOTES=[{"text":"Weekend, relax a bit!","emotion":"happy"},{"text":"Weekend work, dedicated!","emotion":"proud"},{"text":"Take time for yourself!","emotion":"caring"},{"text":"Go outside for a walk!","emotion":"caring"},{"text":"Weekends recharge you!","emotion":"happy"},{"text":"Enjoy it, {player_name}!","emotion":"happy"}]
-COMEBACK_QUOTES=[{"text":"Welcome back!","emotion":"happy","min_away":10},{"text":"Ready to go again?","emotion":"excited","min_away":10},{"text":"Hey, you are back!","emotion":"happy","min_away":15},{"text":"Everything okay?","emotion":"caring","min_away":30},{"text":"Good to have you back!","emotion":"happy","min_away":30},{"text":"Been a while, welcome!","emotion":"excited","min_away":60},{"text":"Hope you are doing well!","emotion":"loving","min_away":120},{"text":"Back, {player_name}!","emotion":"happy","min_away":10},{"text":"Missed you, {player_name}!","emotion":"loving","min_away":30}]
-AFFIRMATION_QUOTES=[{"text":"Never alone, I am here!","emotion":"loving"},{"text":"Your effort matters a lot!","emotion":"proud"},{"text":"Tomorrow is always fresh!","emotion":"comfort"},{"text":"You are not alone here!","emotion":"comfort"},{"text":"Better than you think!","emotion":"proud"},{"text":"One step at a time!","emotion":"caring"},{"text":"You deserve good things!","emotion":"loving"},{"text":"Always right here for you!","emotion":"comfort"},{"text":"World needs you in it!","emotion":"loving"},{"text":"You inspire many people!","emotion":"proud"},{"text":"God's greatest creation!","emotion":"proud"},{"text":"I am here, {player_name}!","emotion":"loving"},{"text":"So proud of you, {player_name}!","emotion":"proud"},{"text":"{player_name}, you matter!","emotion":"comfort"}]
-SCREEN_TIME_WARNINGS=[{"minutes":60,"text":"1 hour in, stretch now!","emotion":"caring"},{"minutes":90,"text":"90 min, rest your eyes!","emotion":"worried"},{"minutes":120,"text":"2 hours, take a real break!","emotion":"worried"},{"minutes":150,"text":"2.5 hrs, body needs rest!","emotion":"worried"},{"minutes":180,"text":"3 hours, break time now!","emotion":"worried"},{"minutes":240,"text":"4 hours, stop right now!","emotion":"angry"}]
-DISTRACTION_WARNINGS=[{"minutes":15,"text":"15 min scrolling already...","emotion":"watching"},{"minutes":30,"text":"30 min, maybe switch now?","emotion":"worried"},{"minutes":45,"text":"45 min, time to refocus!","emotion":"worried"},{"minutes":60,"text":"1 hour, get back on track!","emotion":"angry"}]
-ACTIVITY_QUOTES_MAP={"coding":CODING_QUOTES,"gaming":GAMING_QUOTES,"learning":STUDY_QUOTES,"work":WORK_QUOTES,"creative":CREATIVE_QUOTES,"browsing":BROWSING_QUOTES,"distraction":DISTRACTION_QUOTES,"social":SOCIAL_QUOTES,"music":MUSIC_QUOTES,"ai":CODING_QUOTES,"shopping":BROWSING_QUOTES,"entertainment":BROWSING_QUOTES}
-def load_learned_commands():
-    try:
-        if os.path.exists(LEARNED_COMMANDS_FILE):
-            with open(LEARNED_COMMANDS_FILE,"r")as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return{}
-def save_learned_commands(commands):
-    try:
-        with open(LEARNED_COMMANDS_FILE,"w")as f:
-            json.dump(commands,f,indent=2)
-    except Exception:
-        pass
-def add_learned_command(name,cmd_type,target,response=None,aliases=None):
-    commands=load_learned_commands()
-    commands[name.lower()]={"type":cmd_type,"target":target,"response":response or f"Opening {name}!","learned_at":datetime.now().strftime("%Y-%m-%d %H:%M"),"aliases":aliases or[],"emotion":"happy"}
-    save_learned_commands(commands)
-    return True
-def remove_learned_command(name):
-    commands=load_learned_commands()
-    name_lower=name.lower()
-    if name_lower in commands:
-        del commands[name_lower]
-        save_learned_commands(commands)
-        return True
-    for key,data in list(commands.items()):
-        if name_lower in[a.lower()for a in data.get("aliases",[])]:
-            del commands[key]
-            save_learned_commands(commands)
-            return True
-    return False
-def get_learned_command(name):
-    commands=load_learned_commands()
-    name_lower=name.lower()
-    if name_lower in commands:
-        return commands[name_lower]
-    for key,data in commands.items():
-        if name_lower in[a.lower()for a in data.get("aliases",[])]:
-            return data
-    return None
-def find_similar_commands(name,threshold=0.6):
-    name_lower=name.lower()
-    all_commands=list(COMMAND_MAP.keys())+list(load_learned_commands().keys())
-    suggestions=[]
-    for cmd in all_commands:
-        cmd_clean=cmd.replace("open ","").lower()
-        if name_lower in cmd_clean or cmd_clean in name_lower:
-            suggestions.append(cmd)
-        elif len(name_lower)>2 and len(cmd_clean)>2:
-            common=sum(1 for c in name_lower if c in cmd_clean)
-            similarity=common/max(len(name_lower),len(cmd_clean))
-            if similarity>=threshold:
-                suggestions.append(cmd)
-    return suggestions[:3]
-def open_folder(folder_name):
-    user_profile=os.environ.get('USERPROFILE',os.path.expanduser('~'))
-    folder_map={"documents":os.path.join(user_profile,"Documents"),"downloads":os.path.join(user_profile,"Downloads"),"desktop":os.path.join(user_profile,"Desktop"),"pictures":os.path.join(user_profile,"Pictures"),"music":os.path.join(user_profile,"Music"),"videos":os.path.join(user_profile,"Videos")}
-    folder_path=folder_map.get(folder_name.lower())
-    if not folder_path:
-        folder_path=os.path.join(user_profile,folder_name)
-    if not os.path.exists(folder_path):
-        folder_path=user_profile
-    try:
-        os.startfile(folder_path)
-        return True
-    except Exception:
-        pass
-    try:
-        subprocess.Popen(['explorer',folder_path])
-        return True
-    except Exception:
-        pass
-    return False
-def execute_command(cmd_data):
-    try:
-        cmd_type=cmd_data.get("type","")
-        target=cmd_data.get("target","")
-        if cmd_type=="web":
-            url=target if target.startswith("http")else f"https://{target}"
-            webbrowser.open(url)
-            return True
-        elif cmd_type=="app":
-            try:
-                subprocess.Popen(target,shell=False)
-                return True
-            except Exception:
-                pass
-            try:
-                os.startfile(target)
-                return True
-            except Exception:
-                pass
-            try:
-                subprocess.Popen(f'start "" "{target}"',shell=True)
-                return True
-            except Exception:
-                pass
-            try:
-                subprocess.Popen(["cmd","/c","start","",target])
-                return True
-            except Exception:
-                pass
-            return False
-        elif cmd_type=="system":
-            try:
-                os.startfile(target)
-                return True
-            except Exception:
-                pass
-            try:
-                subprocess.Popen(f'start {target}',shell=True)
-                return True
-            except Exception:
-                pass
-            return False
-        elif cmd_type=="folder":
-            return open_folder(target)
-        elif cmd_type=="type":
-            if HAS_SCREENSHOT:
-                pyautogui.typewrite(target,interval=0.03)
-                return True
-            return False
-    except Exception:
-        return False
-ABBREVIATIONS={"yt":"youtube","ig":"instagram","fb":"facebook","tw":"twitter","wp":"whatsapp","tg":"telegram","dc":"discord","gm":"gmail","gh":"github","vs":"vscode","calc":"calculator","np":"notepad","gd":"google drive","nf":"netflix","amz":"amazon","wiki":"wikipedia","ppt":"powerpoint","docs":"google docs","lc":"leetcode","nc":"neetcode","hr":"hackerrank","cf":"codeforces","cc":"codechef","gfg":"geeksforgeeks"}
-def parse_chat_command(message):
-    msg_lower=message.lower().strip()
-    if len(msg_lower)<3:
-        return None,None
-    for cmd_key,cmd_data in COMMAND_MAP.items():
-        if msg_lower==cmd_key or msg_lower.startswith(cmd_key+" "):
-            return cmd_data,None
-    learned=get_learned_command(msg_lower.replace("open ","").replace("launch ","").replace("start ",""))
-    if learned:
-        return learned,None
-    clean=msg_lower
-    for w in["can you","please","could you","would you","open","launch","start","go to"]:
-        clean=clean.replace(w," ")
-    clean=" ".join(clean.split()).strip()
-    if len(clean)<2:
-        return None,None
-    for abbr,full in ABBREVIATIONS.items():
-        if clean==abbr:
-            clean=full
-            break
-    for cmd_key,cmd_data in COMMAND_MAP.items():
-        cmd_target=cmd_key.replace("open ","")
-        if clean==cmd_target:
-            return cmd_data,None
-    learned=get_learned_command(clean)
-    if learned:
-        return learned,None
-    if msg_lower.startswith(("open ","launch ","go to ","start ")):
-        target=msg_lower.split(" ",1)[1].strip()
-        if len(target)>1:
-            if "."in target and " "not in target:
-                url=target if target.startswith("http")else"https://"+target
-                return{"type":"web","target":url,"response":f"Opening {target}!","emotion":"happy"},None
-            suggestions=find_similar_commands(target)
-            return None,{"unknown_target":target,"suggestions":suggestions}
-    return None,None
-class LearnCommandDialog(QDialog):
-    def __init__(self,target_name,parent=None):
+class SetupWindow(QDialog):
+    def __init__(self,parent=None):
         super().__init__(parent)
-        self.target_name=target_name
-        self.result_data=None
-        self.setWindowTitle(f"Teach Nova: {target_name}")
-        self.setFixedSize(480,380)
+        self.setWindowTitle("Nova Setup")
+        self.setFixedSize(520,420)
         self.setStyleSheet("background-color: rgba(6, 10, 18, 250);")
+        self.api_key=""
         self._build_ui()
     def _build_ui(self):
         layout=QVBoxLayout()
-        layout.setContentsMargins(24,24,24,24)
-        layout.setSpacing(16)
-        title=QLabel(f"I don't know '{self.target_name}' yet!")
+        layout.setContentsMargins(30,30,30,30)
+        layout.setSpacing(18)
+        title=QLabel("Welcome to Nova")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: #00BFFF; font-family: 'Segoe UI'; font-weight: bold; font-size: 18px; border: none; background: transparent;")
+        title.setStyleSheet("color: #00BFFF; font-family: 'Segoe UI'; font-weight: bold; font-size: 28px; border: none; background: transparent;")
         layout.addWidget(title)
-        subtitle=QLabel("Teach me how to open it:")
+        subtitle=QLabel("Your AI Companion needs a brain to function.\nPlease paste your Google Gemini API key below.")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("color: rgba(200, 215, 235, 0.7); font-family: 'Segoe UI'; font-size: 14px; border: none; background: transparent;")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("color: rgba(200, 215, 235, 0.8); font-family: 'Segoe UI'; font-size: 14px; border: none; background: transparent;")
         layout.addWidget(subtitle)
-        btn_style="QPushButton {background: rgba(0, 150, 255, 0.1);border: 1px solid rgba(0, 150, 255, 0.3);border-radius: 14px;color: #00BFFF;font-family: 'Segoe UI';font-size: 15px;font-weight: bold;padding: 14px 20px;}QPushButton:hover {background: rgba(0, 150, 255, 0.25);}"
-        app_btn=QPushButton("It's an Application (.exe)")
-        app_btn.setCursor(Qt.PointingHandCursor)
-        app_btn.setStyleSheet(btn_style)
-        app_btn.clicked.connect(self._pick_app)
-        layout.addWidget(app_btn)
-        web_btn=QPushButton("It's a Website")
-        web_btn.setCursor(Qt.PointingHandCursor)
-        web_btn.setStyleSheet(btn_style)
-        web_btn.clicked.connect(self._show_url_input)
-        layout.addWidget(web_btn)
-        folder_btn=QPushButton("It's a Folder")
-        folder_btn.setCursor(Qt.PointingHandCursor)
-        folder_btn.setStyleSheet(btn_style)
-        folder_btn.clicked.connect(self._pick_folder)
-        layout.addWidget(folder_btn)
-        self.url_frame=QFrame()
-        self.url_frame.setStyleSheet("background: transparent; border: none;")
-        self.url_frame.hide()
-        url_layout=QVBoxLayout(self.url_frame)
-        url_layout.setContentsMargins(0,10,0,0)
-        url_layout.setSpacing(10)
-        url_label=QLabel("Enter the website URL:")
-        url_label.setStyleSheet("color: rgba(200, 215, 235, 0.8); font-family: 'Segoe UI'; font-size: 14px; border: none; background: transparent;")
-        url_layout.addWidget(url_label)
-        self.url_input=QLineEdit()
-        self.url_input.setPlaceholderText("e.g., google.com or https://google.com")
-        self.url_input.setStyleSheet("QLineEdit {background-color: rgba(0, 150, 255, 0.08);border: 1px solid rgba(0, 150, 255, 0.3);border-radius: 12px;color: rgba(255,255,255,0.9);padding: 12px 16px;font-family: 'Consolas';font-size: 14px;}QLineEdit:focus {border: 1px solid rgba(0, 191, 255, 0.6);}")
-        self.url_input.returnPressed.connect(self._save_url)
-        url_layout.addWidget(self.url_input)
-        save_url_btn=QPushButton("Save URL")
-        save_url_btn.setCursor(Qt.PointingHandCursor)
-        save_url_btn.setStyleSheet("QPushButton {background: rgba(0, 212, 170, 0.2);border: 1px solid rgba(0, 212, 170, 0.4);border-radius: 12px;color: #00D4AA;font-family: 'Segoe UI';font-size: 14px;font-weight: bold;padding: 10px 24px;}QPushButton:hover {background: rgba(0, 212, 170, 0.35);}")
-        save_url_btn.clicked.connect(self._save_url)
-        url_layout.addWidget(save_url_btn)
-        layout.addWidget(self.url_frame)
+        self.key_input=QLineEdit()
+        self.key_input.setPlaceholderText("Paste your Gemini API key here...")
+        self.key_input.setEchoMode(QLineEdit.Password)
+        self.key_input.setStyleSheet("QLineEdit {background-color: rgba(0, 150, 255, 0.08);border: 1px solid rgba(0, 150, 255, 0.3);border-radius: 14px;color: rgba(255,255,255,0.9);padding: 14px 20px;font-family: 'Consolas';font-size: 14px;}QLineEdit:focus {border: 1px solid rgba(0, 191, 255, 0.6);}")
+        layout.addWidget(self.key_input)
+        self.name_input=QLineEdit()
+        self.name_input.setPlaceholderText("What should Nova call you? (Default: Twin)")
+        self.name_input.setStyleSheet("QLineEdit {background-color: rgba(0, 150, 255, 0.08);border: 1px solid rgba(0, 150, 255, 0.3);border-radius: 14px;color: rgba(255,255,255,0.9);padding: 14px 20px;font-family: 'Consolas';font-size: 14px;}QLineEdit:focus {border: 1px solid rgba(0, 191, 255, 0.6);}")
+        layout.addWidget(self.name_input)
+        link_label=QLabel('<a href="https://aistudio.google.com/app/apikey" style="color: #00BFFF; text-decoration: none;">Click here to get your free Gemini API key</a>')
+        link_label.setOpenExternalLinks(True)
+        link_label.setAlignment(Qt.AlignCenter)
+        link_label.setStyleSheet("font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
+        layout.addWidget(link_label)
         layout.addStretch()
-        cancel_btn=QPushButton("Cancel")
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.setStyleSheet("QPushButton {background: transparent;border: 1px solid rgba(255,100,100,0.3);border-radius: 12px;color: rgba(255,100,100,0.7);font-family: 'Segoe UI';font-size: 14px;padding: 10px 20px;}QPushButton:hover {background: rgba(255,100,100,0.15);color: #FF6B6B;}")
-        cancel_btn.clicked.connect(self.reject)
-        layout.addWidget(cancel_btn)
+        self.status_label=QLabel("")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: #FF4757; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
+        layout.addWidget(self.status_label)
+        start_btn=QPushButton("Activate Nova")
+        start_btn.setCursor(Qt.PointingHandCursor)
+        start_btn.setStyleSheet("QPushButton {background: rgba(0, 191, 255, 0.2);border: 1px solid rgba(0, 191, 255, 0.5);border-radius: 18px;color: #00BFFF;font-family: 'Segoe UI';font-size: 18px;font-weight: bold;padding: 14px 40px;}QPushButton:hover {background: rgba(0, 191, 255, 0.4);}")
+        start_btn.clicked.connect(self._validate_and_save)
+        layout.addWidget(start_btn)
         self.setLayout(layout)
-    def _pick_app(self):
-        from PyQt5.QtWidgets import QFileDialog
-        file_path,_=QFileDialog.getOpenFileName(self,"Select Application","C:\\","Executables (*.exe);;All Files (*.*)")
-        if file_path:
-            self.result_data={"type":"app","target":file_path,"name":self.target_name}
-            self.accept()
-    def _show_url_input(self):
-        self.url_frame.show()
-        self.url_input.setFocus()
-    def _save_url(self):
-        url=self.url_input.text().strip()
-        if url:
-            if not url.startswith("http"):
-                url="https://"+url
-            self.result_data={"type":"web","target":url,"name":self.target_name}
-            self.accept()
-    def _pick_folder(self):
-        from PyQt5.QtWidgets import QFileDialog
-        folder_path=QFileDialog.getExistingDirectory(self,"Select Folder","C:\\")
-        if folder_path:
-            self.result_data={"type":"folder","target":folder_path,"name":self.target_name}
-            self.accept()
+    def _validate_and_save(self):
+        key=self.key_input.text().strip()
+        name=self.name_input.text().strip()or"Twin"
+        if not key:
+            self.status_label.setText("Please enter your API key.")
+            self.status_label.setStyleSheet("color: #FF4757; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
+            return
+        if len(key)<20:
+            self.status_label.setText("That key looks too short. Please check it.")
+            self.status_label.setStyleSheet("color: #FF4757; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
+            return
+        self.status_label.setText("Validating your key...")
+        self.status_label.setStyleSheet("color: #00BFFF; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
+        QApplication.processEvents()
+        models_to_try=["gemini-2.5-flash","gemini-2.0-flash-exp","gemini-2.0-flash","gemini-1.5-flash","gemini-pro"]
+        validated=False
+        for model in models_to_try:
+            try:
+                test_client=genai.Client(api_key=key)
+                response=test_client.models.generate_content(model=model,contents="Hi")
+                if response and response.text:
+                    validated=True
+                    config=load_config()
+                    config["api_key"]=key
+                    config["player_name"]=name
+                    config["preferred_model"]=model
+                    save_config(config)
+                    self.api_key=key
+                    self.accept()
+                    return
+            except Exception as e:
+                error_str=str(e).lower()
+                if"quota"in error_str or"exhausted"in error_str or"rate"in error_str:
+                    config=load_config()
+                    config["api_key"]=key
+                    config["player_name"]=name
+                    save_config(config)
+                    self.api_key=key
+                    self.accept()
+                    return
+                continue
+        if not validated:
+            self.status_label.setText("Could not validate. Saving anyway...")
+            self.status_label.setStyleSheet("color: #FFD700; font-family: 'Segoe UI'; font-size: 13px; background: transparent; border: none;")
+            config=load_config()
+            config["api_key"]=key
+            config["player_name"]=name
+            save_config(config)
+            self.api_key=key
+            QTimer.singleShot(1500,self.accept)
 class HydrationTracker:
     def __init__(self,companion_ref):
         self.companion=companion_ref
@@ -956,17 +873,17 @@ class HydrationTracker:
         self.glasses+=1
         self.last_reminder=time.time()
         if self.glasses>=self.goal:
-            msg=f"Glass {self.glasses} out of {self.goal} - Goal reached! Amazing!"
+            msg=f"Glass {self.glasses} of {self.goal} done! Hydration goal reached! Amazing!"
             self.companion.set_emotion_with_status("excited",msg,duration=6000)
         else:
-            msg=f"Glass #{self.glasses}! out of {self.goal} today"
+            msg=f"Glass {self.glasses} of {self.goal} logged! Keep it up!"
             self.companion.set_emotion_with_status("happy",msg,duration=5000)
         return msg
     def _remind(self):
         if time.time()-self.last_reminder>2700:
-            self.companion.set_emotion_with_status("caring","Hey, time for some water!",duration=6000)
+            self.companion.set_emotion_with_status("caring","Hey! Time for some water!",duration=6000)
     def get_status(self):
-        return f"{self.glasses}/{self.goal} glasses today"
+        return f"{self.glasses} of {self.goal} glasses today"
 class ScreenTimeTracker:
     def __init__(self,companion_ref):
         self.companion=companion_ref
@@ -979,31 +896,35 @@ class ScreenTimeTracker:
         self.check_timer.timeout.connect(self._check)
         self.check_timer.start(60000)
     def _check(self):
-        elapsed=(time.time()-self.session_start)/60
-        for i,warning in enumerate(SCREEN_TIME_WARNINGS):
-            if elapsed>=warning["minutes"]and self.last_warning_level<=i:
-                self.last_warning_level=i+1
-                self.companion.set_emotion_with_status(warning["emotion"],warning["text"],duration=15000)
+     elapsed=(time.time()-self.session_start)/60
+     for i,warning in enumerate(SCREEN_TIME_WARNINGS):
+        if elapsed>=warning["minutes"]and self.last_warning_level<=i:
+            self.last_warning_level=i+1
+            self.companion.set_emotion_with_status(warning["emotion"],warning["text"],duration=15000)
+            if time.time()-getattr(self,'_last_warn_speak',0)>300:
+                self._last_warn_speak=time.time()
                 self.companion.chat_bubble._speak_now(warning["text"],warning["emotion"])
-                break
+            break
     def check_distraction(self,app_key):
-        if app_key in DISTRACTION_APPS:
-            if self.current_distraction!=app_key:
-                self.current_distraction=app_key
-                self.distraction_start=time.time()
-                self.distraction_warning_level=0
-            else:
-                elapsed=(time.time()-self.distraction_start)/60
-                for i,warning in enumerate(DISTRACTION_WARNINGS):
-                    if elapsed>=warning["minutes"]and self.distraction_warning_level<=i:
-                        self.distraction_warning_level=i+1
-                        self.companion.set_emotion_with_status(warning["emotion"],warning["text"],duration=12000)
-                        self.companion.chat_bubble._speak_now(warning["text"],warning["emotion"])
-                        break
-        else:
-            self.current_distraction=None
-            self.distraction_start=None
+     if app_key in DISTRACTION_APPS:
+        if self.current_distraction!=app_key:
+            self.current_distraction=app_key
+            self.distraction_start=time.time()
             self.distraction_warning_level=0
+        else:
+            elapsed=(time.time()-self.distraction_start)/60
+            for i,warning in enumerate(DISTRACTION_WARNINGS):
+                if elapsed>=warning["minutes"]and self.distraction_warning_level<=i:
+                    self.distraction_warning_level=i+1
+                    self.companion.set_emotion_with_status(warning["emotion"],warning["text"],duration=12000)
+                    if time.time()-getattr(self,'_last_distract_speak',0)>300:
+                        self._last_distract_speak=time.time()
+                        self.companion.chat_bubble._speak_now(warning["text"],warning["emotion"])
+                    break
+     else:
+        self.current_distraction=None
+        self.distraction_start=None
+        self.distraction_warning_level=0
     def take_break(self):
         self.session_start=time.time()
         self.last_warning_level=0
@@ -1099,7 +1020,7 @@ class PomodoroWindow(QWidget):
         self.status_label.setText("Focusing...")
         self._update_display()
         if self.companion_ref:
-            self.companion_ref.set_emotion_with_status("determined",f"{self.default_minutes}min focus!",duration=0)
+            self.companion_ref.set_emotion_with_status("determined",f"{self.default_minutes}min focus started!",duration=0)
     def stop_timer(self):
         self.running=False
         self.tick_timer.stop()
@@ -1215,7 +1136,10 @@ class CodePanel(QWidget):
         for lang,code in code_blocks:
             escaped=code.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
             highlighted=self._syntax_highlight(escaped)
-            html+=(f"<div style='background:#080e1a; border:1px solid rgba(0,191,255,0.25); border-radius:12px; margin:10px 0;'>"f"<div style='background:#0d1422; padding:12px 18px; border-bottom:1px solid rgba(0,191,255,0.15);'>"f"<span style='color:#00BFFF; font-size:14px; font-weight:bold; font-family:Consolas;'>{lang or 'code'}</span></div>"f"<pre style='padding:18px; margin:0; white-space:pre-wrap; word-wrap:break-word; line-height:1.7; font-family:Consolas; font-size:16px; color:#E0E8F0;'>{highlighted}</pre></div>")
+            html+=(f"<div style='background:#080e1a; border:1px solid rgba(0,191,255,0.25); border-radius:12px; margin:10px 0;'>"
+                   f"<div style='background:#0d1422; padding:12px 18px; border-bottom:1px solid rgba(0,191,255,0.15);'>"
+                   f"<span style='color:#00BFFF; font-size:14px; font-weight:bold; font-family:Consolas;'>{lang or 'code'}</span></div>"
+                   f"<pre style='padding:18px; margin:0; white-space:pre-wrap; word-wrap:break-word; line-height:1.7; font-family:Consolas; font-size:16px; color:#E0E8F0;'>{highlighted}</pre></div>")
         self.code_browser.setHtml(html)
         screen=QApplication.primaryScreen().geometry()
         target_y=chat_y+chat_height+10
@@ -1275,6 +1199,10 @@ class ChatBubble(QWidget):
         self._pending_voice_emotion=""
         self._pending_text=""
         self._pending_emotion="neutral"
+        self._learning_mode=False
+        self._learning_target=""
+        self._learning_stage=""
+        self._learning_type=""
         self.code_panel=CodePanel()
         self.media_player=QMediaPlayer()
         self.fade_in_anim=QPropertyAnimation(self,b"windowOpacity")
@@ -1418,6 +1346,7 @@ class ChatBubble(QWidget):
         inner.addWidget(input_frame)
         main_lay.addWidget(self.container)
         self.setLayout(main_lay)
+        self.input_field.setFocus()
     def _update_tts_btn_style(self):
         if self._tts_enabled:
             self.tts_btn.setStyleSheet("QPushButton { background: rgba(0,212,170,0.15); border: 1px solid rgba(0,212,170,0.3); font-size: 16px; border-radius: 10px; color: #00D4AA; } QPushButton:hover { background: rgba(0,212,170,0.3); }")
@@ -1629,7 +1558,7 @@ class ChatBubble(QWidget):
             self.show_message(msg,"happy")
             self._speak_now(msg,"happy")
     def _posture_check(self):
-        msgs=["Hey! Sit up straight! Your back will thank you later!","Posture check! Shoulders back, chin up!","Time to straighten up! The Guardian stands tall!","Roll those shoulders! Stay strong and healthy!"]
+        msgs=["Hey! Sit up straight! Your back will thank you later!","Posture check! Shoulders back, chin up!","Time to straighten up! Stand tall!","Roll those shoulders! Stay strong and healthy!"]
         msg=random.choice(msgs)
         self.show_message(msg,"caring")
         self._speak_now(msg,"caring")
@@ -1660,14 +1589,118 @@ class ChatBubble(QWidget):
             self._active_workers.remove(w)
         except ValueError:
             pass
+    def _start_learning_flow(self,target_name):
+        self._learning_mode=True
+        self._learning_target=target_name
+        self._learning_stage="awaiting_type"
+        self._learning_type=""
+        player_name=get_player_name()
+        msg=(f"Hmm, I don't know '{target_name}' yet, {player_name}! "
+             f"Let me learn it from you right now.\n\n"
+             f"Is it a website, an app, or a folder?\n"
+             f"Just type: website, app, or folder")
+        self.show_message(msg,"curious")
+        self._speak_now(f"I don't know {target_name} yet. Is it a website, an app, or a folder?","curious")
+        if self.companion_ref:
+            self.companion_ref.set_emotion_with_status("curious","Learning new command!",duration=0)
+        self.input_field.setPlaceholderText("Type: website, app, or folder...")
+    def _handle_learning_input(self,msg):
+        ml=msg.lower().strip()
+        player_name=get_player_name()
+        if ml in["cancel","skip","nevermind","never mind","stop","quit","no"]:
+            self._learning_mode=False
+            self._learning_target=""
+            self._learning_stage=""
+            self._learning_type=""
+            self.input_field.setPlaceholderText("Talk to Nova... (/help for commands)")
+            self.show_message("No problem! Just ask me anything else.","happy")
+            self._speak_now("No problem! Just ask me anything else.","happy")
+            if self.companion_ref:
+                self.companion_ref.set_emotion_with_status("happy","Ready!",duration=5000)
+            return
+        if self._learning_stage=="awaiting_type":
+            if any(w in ml for w in["web","site","website","url","link","http"]):
+                self._learning_type="web"
+                self._learning_stage="awaiting_value"
+                msg_out=(f"Got it! What is the URL for '{self._learning_target}'?\n"
+                         f"For example: https://www.example.com or just example.com")
+                self.show_message(msg_out,"happy")
+                self._speak_now(f"What is the URL for {self._learning_target}?","happy")
+                self.input_field.setPlaceholderText("Type the URL here...")
+            elif any(w in ml for w in["app","application","program","exe","software"]):
+                self._learning_type="app"
+                self._learning_stage="awaiting_value"
+                msg_out=(f"Got it! What is the executable name or full path for '{self._learning_target}'?\n"
+                         f"For example: notepad.exe or C:\\Program Files\\App\\app.exe")
+                self.show_message(msg_out,"happy")
+                self._speak_now(f"What is the executable for {self._learning_target}?","happy")
+                self.input_field.setPlaceholderText("Type the .exe name or full path...")
+            elif any(w in ml for w in["folder","directory","dir","path"]):
+                self._learning_type="folder"
+                self._learning_stage="awaiting_value"
+                msg_out=(f"Got it! What folder should I open for '{self._learning_target}'?\n"
+                         f"For example: Documents, Downloads, or C:\\MyFolder")
+                self.show_message(msg_out,"happy")
+                self._speak_now(f"What folder should I open for {self._learning_target}?","happy")
+                self.input_field.setPlaceholderText("Type the folder name or path...")
+            else:
+                self.show_message("I didn't catch that. Please type: website, app, or folder","confused")
+                self._speak_now("Please type website, app, or folder","confused")
+            return
+        if self._learning_stage=="awaiting_value":
+            value=msg.strip()
+            cmd_type=self._learning_type
+            target_name=self._learning_target
+            if cmd_type=="web":
+                if not value.startswith("http"):
+                    value="https://"+value
+            add_learned_command(target_name,cmd_type,value)
+            self._learning_mode=False
+            self._learning_target=""
+            self._learning_stage=""
+            self._learning_type=""
+            self.input_field.setPlaceholderText("Talk to Nova... (/help for commands)")
+            success_msg=(f"Done! I've learned that '{target_name}' opens {value}. "
+                         f"Next time just say 'open {target_name}' and I'll handle it!")
+            self.show_message(success_msg,"excited")
+            self._speak_now(f"Done! I learned {target_name}. I'll remember it from now on!","excited")
+            if self.companion_ref:
+                self.companion_ref.set_emotion_with_status("excited",f"Learned: {target_name}!",duration=6000)
+            cmd_data={"type":cmd_type,"target":value,"response":f"Opening {target_name}!","emotion":"happy"}
+            success=execute_command(cmd_data)
+            if success:
+                self.show_message(f"Opening {target_name} for you right now!","happy")
+            return
     def _handle_shortcut(self,msg):
         ml=msg.lower().strip()
         if ml=="/help":
-            help_text=("Commands:\n/timer <min> - Start timer\n/water - Log water\n/screentime - Check screen time\n/break - Take a break\n/posture - Posture check\n/clear - Clear chat\n/fontsize <num> - Set font size (13-28)\n/sound off|on - Toggle sound\n/voice off|on - Toggle voice output\n/name <name> - Change what Nova calls you\n/forget <name> - Forget learned command\n/learned - Show learned commands\n/reset - Reset Nova completely")
-            self.show_message(help_text,"happy")
-            return True
+         help_text=("Available Commands:\n"
+               "/timer <min>    — Start a Pomodoro timer\n"
+               "/water          — Log a glass of water\n"
+               "/water status   — Check hydration progress\n"
+               "/screentime     — Check session time\n"
+               "/break          — Reset screen time tracker\n"
+               "/posture        — Posture reminder\n"
+               "/clear          — Clear chat history\n"
+               "/fontsize <num> — Set font size (13 to 28)\n"
+               "/voice off|on   — Toggle voice output\n"
+               "/name <name>    — Change your name\n"
+               "/learned        — Show learned commands\n"
+               "/forget <name>  — Remove a learned command\n"
+               "/reset          — Reset Nova completely\n\n"
+               "Keyboard Shortcuts:\n"
+               "Ctrl+Space      — Open or close chat\n"
+               "Ctrl+1          — Toggle voice input (mic)\n"
+               "Ctrl+2          — Analyse screen\n"
+               "Ctrl+3          — Analyse screen for code\n"
+               "Ctrl+4          — Open Pomodoro timer\n"
+               "Ctrl+5          — Log water\n"
+               "Ctrl+6          — Toggle speaker on/off")
+         self.show_message(help_text,"happy")
+         self._speak_now("Here are all the commands and shortcuts you can use!","happy")
+         return True
         if ml=="/reset":
-            self.show_message("Resetting Nova... All data will be cleared and the app will restart.","worried")
+            self.show_message("Resetting Nova now. All data will be cleared and the app will restart.","worried")
             self._speak_now("Resetting Nova. See you soon!","caring")
             QTimer.singleShot(2000,self._do_reset)
             return True
@@ -1678,7 +1711,7 @@ class ChatBubble(QWidget):
                 config=load_config()
                 config["player_name"]=new_name
                 save_config(config)
-                resp=f"I'll call you {new_name} from now on!"
+                resp=f"Got it! I'll call you {new_name} from now on!"
                 self.show_message(resp,"happy")
                 self._speak_now(resp,"happy")
             else:
@@ -1689,21 +1722,27 @@ class ChatBubble(QWidget):
             if len(parts)>=2:
                 name=parts[1].strip()
                 if remove_learned_command(name):
-                    resp=f"Forgot '{name}'! I won't remember it anymore."
+                    resp=f"Done! I've forgotten '{name}' completely."
                     self.show_message(resp,"happy")
                     self._speak_now(resp,"happy")
                 else:
-                    self.show_message(f"I don't know '{name}' to forget it!","confused")
+                    self.show_message(f"I don't have '{name}' in my memory!","confused")
             else:
                 self.show_message("Usage: /forget <command name>","confused")
             return True
         if ml=="/learned":
             learned=load_learned_commands()
             if learned:
-                text="Learned commands:\n"+"\n".join([f"• {name} ({data['type']})"for name,data in learned.items()])
+                lines=[]
+                for name,data in learned.items():
+                    learned_at=data.get("learned_at","unknown")
+                    lines.append(f"• {name}  ({data['type']})  →  {data['target']}  [learned {learned_at}]")
+                text="Learned Commands:\n"+"\n".join(lines)
                 self.show_message(text,"proud")
+                self._speak_now(f"You have {len(learned)} learned commands!","proud")
             else:
-                self.show_message("I haven't learned any custom commands yet!","happy")
+                self.show_message("No learned commands yet! Just say 'open something' and I'll learn it.","happy")
+                self._speak_now("No learned commands yet!","happy")
             return True
         if ml.startswith("/fontsize"):
             parts=ml.split()
@@ -1715,7 +1754,7 @@ class ChatBubble(QWidget):
                 except ValueError:
                     self.show_message("Usage: /fontsize <13-28>","confused")
             else:
-                self.show_message(f"Current font size: {self._base_font_size}. Usage: /fontsize <13-28>","happy")
+                self.show_message(f"Current font size: {self._base_font_size}","happy")
             return True
         if ml.startswith("/timer"):
             parts=ml.split()
@@ -1741,13 +1780,15 @@ class ChatBubble(QWidget):
                         self.show_message("Usage: /timer <minutes>","confused")
             else:
                 self._show_timer()
-                self.show_message("Timer opened!","happy")
+                self.show_message("Pomodoro timer opened!","happy")
             return True
         if ml.startswith("/water"):
             parts=ml.split()
             if len(parts)>=2 and parts[1]=="status":
                 if self.companion_ref and hasattr(self.companion_ref,'hydration'):
-                    self.show_message(self.companion_ref.hydration.get_status(),"happy")
+                    msg=self.companion_ref.hydration.get_status()
+                    self.show_message(msg,"happy")
+                    self._speak_now(msg,"happy")
             else:
                 self._log_water()
             return True
@@ -1763,7 +1804,7 @@ class ChatBubble(QWidget):
         if ml=="/break":
             if self.companion_ref and hasattr(self.companion_ref,'screen_time'):
                 self.companion_ref.screen_time.take_break()
-                resp="Break logged! Timer reset! Take care of yourself!"
+                resp="Break logged! Screen time timer has been reset. Take care of yourself!"
                 self.show_message(resp,"happy")
                 self._speak_now(resp,"happy")
                 self.companion_ref.set_emotion_with_status("happy","Break taken!",duration=6000)
@@ -1776,15 +1817,7 @@ class ChatBubble(QWidget):
                     w.deleteLater()
             self._chat_messages.clear()
             self.show_message("Chat cleared! Fresh start!","happy")
-            return True
-        if ml.startswith("/sound"):
-            parts=ml.split()
-            if len(parts)>=2 and parts[1]=="off":
-                self._sound_enabled=False
-                self.show_message("Sound off","neutral")
-            else:
-                self._sound_enabled=True
-                self.show_message("Sound on","happy")
+            self._speak_now("Chat cleared! Fresh start!","happy")
             return True
         if ml.startswith("/voice"):
             parts=ml.split()
@@ -1810,21 +1843,27 @@ class ChatBubble(QWidget):
             elif action["type"]=="open":
                 try:
                     subprocess.Popen(action["target"],shell=False)
-                except:
+                except Exception:
                     try:
                         os.startfile(action["target"])
-                    except:
+                    except Exception:
                         subprocess.Popen(f'start "" "{action["target"]}"',shell=True)
             elif action["type"]=="folder":
                 open_folder(action["target"])
-        except:
+        except Exception:
             pass
     def send_message(self):
         msg=self.input_field.text().strip()
-        if not msg or self._is_waiting_ai:
+        if not msg:
+            return
+        if self._learning_mode:
+            self.input_field.clear()
+            self._add_chat_bubble(msg,is_user=True)
+            self._handle_learning_input(msg)
+            return
+        if self._is_waiting_ai:
             return
         self.input_field.clear()
-        self.input_field.setText("")
         QApplication.processEvents()
         if self.companion_ref:
             self.companion_ref.last_interaction_time=time.time()
@@ -1832,20 +1871,22 @@ class ChatBubble(QWidget):
         if msg.startswith("/")and self._handle_shortcut(msg):
             return
         ml=msg.lower()
-        if any(x in ml for x in["what's on my screen","read screen","analyze screen","what do you see","look at my screen"]):
-            self._analyze_screen("general")
-            return
-        if any(x in ml for x in["explain code","analyze code","review code","check code","debug this"]):
-            self._analyze_screen("code")
-            return
+        screen_general_triggers=["what's on my screen","read screen","analyze screen","analyse screen","what do you see","look at my screen","check my screen","scan my screen","see my screen","what am i looking at","what's on screen","whats on my screen","screen analysis","analyse my screen","analyze my screen","what is on my screen","look at screen","read my screen","capture screen","take a screenshot","screenshot"]
+        screen_code_triggers=["explain code","analyze code","analyse code","review code","check code","debug this","look at my code","read my code","check my code","what does this code do","explain this code","analyse my code","analyze my code","debug my code","review my code"]
+        if any(x in ml for x in screen_general_triggers):
+          self._analyze_screen("general")
+          return
+        if any(x in ml for x in screen_code_triggers):
+         self._analyze_screen("code")
+         return
         cmd,learn_info=parse_chat_command(msg)
         if cmd:
             success=execute_command(cmd)
             cmd_emotion=cmd.get("emotion","happy")
             if success:
-                resp=cmd.get('response',f"Done!")
+                resp=cmd.get('response',"Done!")
             else:
-                resp=f"Hmm, had trouble with that. Try doing it manually!"
+                resp="Hmm, I had trouble with that. Try doing it manually!"
                 cmd_emotion="worried"
             self.show_message(resp,cmd_emotion)
             self._speak_now(resp,cmd_emotion)
@@ -1855,27 +1896,14 @@ class ChatBubble(QWidget):
         if learn_info:
             target_name=learn_info["unknown_target"]
             suggestions=learn_info.get("suggestions",[])
-            dialog=LearnCommandDialog(target_name,self)
-            if dialog.exec_()==QDialog.Accepted and dialog.result_data:
-                data=dialog.result_data
-                add_learned_command(data["name"],data["type"],data["target"])
-                resp=f"Got it! I'll remember '{data['name']}' from now on!"
-                self.show_message(resp,"excited")
-                self._speak_now(resp,"excited")
+            if suggestions:
+                sugg_text=", ".join(suggestions)
+                hint=f"Did you mean: {sugg_text}?\n\nOr I can learn '{target_name}' right now!"
+                self.show_message(hint,"curious")
+                self._speak_now(f"Did you mean {suggestions[0]}? Or I can learn {target_name} right now!","curious")
                 if self.companion_ref:
-                    self.companion_ref.set_emotion_with_status("excited",resp,duration=5000)
-                success=execute_command(data)
-                if success:
-                    open_resp=f"Opening {data['name']} now!"
-                    self.show_message(open_resp,"happy")
-                else:
-                    self.show_message(f"Saved, but couldn't open it this time. Try again!","worried")
-            else:
-                if suggestions:
-                    sugg_text="Did you mean: "+", ".join(suggestions)+"?"
-                    self.show_message(f"I don't know '{target_name}'. {sugg_text}","confused")
-                else:
-                    self.show_message("Okay, maybe next time!","happy")
+                    self.companion_ref.set_emotion_with_status("curious","Suggesting...",duration=4000)
+            self._start_learning_flow(target_name)
             return
         user_emotion=detect_message_emotion(msg)
         if self.companion_ref:
@@ -1904,7 +1932,7 @@ class ChatBubble(QWidget):
         self.show_message(error_text,"worried")
         self._speak_now(f"Sorry {get_player_name()}, {title}","worried")
         if self.companion_ref:
-            self.companion_ref.set_emotion_with_status("worried",title,duration=10000)        
+            self.companion_ref.set_emotion_with_status("worried",title,duration=10000)
     def _on_voice_ready(self,voice_text,emotion):
         if voice_text and self._tts_enabled:
             self._pending_voice_text=voice_text
@@ -1947,7 +1975,7 @@ class ChatBubble(QWidget):
                 try:
                     import winsound
                     winsound.MessageBeep(winsound.MB_OK)
-                except:
+                except Exception:
                     pass
     def _on_action(self,action):
         try:
@@ -1957,17 +1985,17 @@ class ChatBubble(QWidget):
             elif action["type"]=="open":
                 try:
                     subprocess.Popen(action["target"],shell=False)
-                except:
+                except Exception:
                     try:
                         os.startfile(action["target"])
-                    except:
+                    except Exception:
                         subprocess.Popen(f'start "" "{action["target"]}"',shell=True)
             elif action["type"]=="folder":
                 open_folder(action["target"])
             elif action["type"]=="type":
                 if HAS_SCREENSHOT:
                     pyautogui.typewrite(action["target"],interval=0.03)
-        except:
+        except Exception:
             pass
     def _extract_and_execute_commands(self,response):
         commands=re.findall(r'\[CMD:([^\]]+)\]',response)
@@ -2126,6 +2154,8 @@ class NovaCompanion(QWidget):
         self._title_check_counter=0
         self._voice_worker=None
         self._continuous_listening=False
+        self._last_spoken_time=0
+        self._min_speak_gap=120
         self.settings=load_settings()
         self.init_ui()
         self.chat_bubble=ChatBubble(companion_ref=self)
@@ -2151,6 +2181,35 @@ class NovaCompanion(QWidget):
             get_gemini_client()
         except Exception:
             pass
+    def init_ui(self):
+        self.setWindowFlags(Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint|Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground,True)
+        self.setFixedSize(350,550)
+        screen=QApplication.primaryScreen().geometry()
+        self.move(screen.width()-380,screen.height()-600)
+        layout=QVBoxLayout()
+        layout.setContentsMargins(0,0,0,0)
+        self.browser=QWebEngineView()
+        page=TransparentWebPage(self.browser)
+        self.browser.setPage(page)
+        s=self.browser.settings()
+        s.setAttribute(QWebEngineSettings.WebGLEnabled,True)
+        s.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled,True)
+        s.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls,True)
+        self.browser.setStyleSheet("background: transparent; border: none;")
+        self.browser.page().setBackgroundColor(QColor(0,0,0,0))
+        self.browser.loadFinished.connect(self.on_load_finished)
+        self.browser.setContextMenuPolicy(Qt.NoContextMenu)
+        layout.addWidget(self.browser)
+        self.setLayout(layout)
+        self.overlay=OverlayWidget(self)
+        self.overlay.setGeometry(0,0,350,550)
+        self.overlay.raise_()
+        html_path=os.path.join(BASE_DIR,"nova_live2d.html")
+        self.create_live2d_html(html_path)
+        self.browser.setUrl(QUrl.fromLocalFile(html_path))
+    def forward_click_to_browser(self,pos):
+        self.browser.page().runJavaScript(f"(function(){{var e=new MouseEvent('click',{{bubbles:true,clientX:{pos.x()},clientY:{pos.y()}}});document.querySelector('canvas').dispatchEvent(e);}})();")
     def setup_system_tray(self):
         self.tray_icon=QSystemTrayIcon(self)
         pix=QPixmap(32,32)
@@ -2189,78 +2248,22 @@ class NovaCompanion(QWidget):
         self.tray_icon.setContextMenu(m)
         self.tray_icon.show()
         self.tray_icon.activated.connect(lambda r:self.toggle_chat()if r==QSystemTrayIcon.DoubleClick else None)
-    def _reset_nova(self):
-        self.set_emotion_with_status("worried","Resetting...",duration=3000)
-        self.chat_bubble._speak_now("Resetting Nova. See you soon!","caring")
-        QTimer.singleShot(2000,self._do_reset)
-    def _do_reset(self):
-        reset_all_data()
-        restart_application()
-    def _populate_code_menu(self,menu):
-        menu.clear()
-        history=self.chat_bubble.get_code_history()
-        if not history:
-            a=QAction("No recent codes",self)
-            a.setEnabled(False)
-            menu.addAction(a)
-            return
-        for i,entry in enumerate(reversed(history[-5:])):
-            idx=len(history)-1-i
-            lang=entry["blocks"][0][0]if entry["blocks"]else"code"
-            label=f"[{entry['time']}] {lang}"
-            a=QAction(label,self)
-            a.triggered.connect(lambda checked,x=idx:self.chat_bubble.show_history_code(x))
-            menu.addAction(a)
-    def _show_screen_time(self):
-        if not self.chat_bubble.isVisible():
-            self.chat_bubble.show_chat()
-        msg=self.screen_time.get_session_time()
-        self.chat_bubble.show_message(msg,"watching")
-    def _take_break(self):
-        self.screen_time.take_break()
-        resp="Break taken! Timer reset! You deserve it!"
-        self.set_emotion_with_status("happy",resp,duration=8000)
-        self.chat_bubble.show_message(resp,"happy")
-        self.chat_bubble._speak_now(resp,"happy")
-    def _open_chat_and(self,mode):
-        if not self.chat_bubble.isVisible():
-            self.chat_bubble.show_chat()
-        self.chat_bubble._analyze_screen(mode)
     def setup_global_hotkey(self):
-        if HAS_KEYBOARD:
-            try:
-                keyboard.add_hotkey('ctrl+space',lambda:QTimer.singleShot(0,self.toggle_chat),suppress=True)
-            except Exception:
-                pass
-    def init_ui(self):
-        self.setWindowFlags(Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint|Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground,True)
-        self.setFixedSize(350,550)
-        screen=QApplication.primaryScreen().geometry()
-        self.move(screen.width()-380,screen.height()-600)
-        layout=QVBoxLayout()
-        layout.setContentsMargins(0,0,0,0)
-        self.browser=QWebEngineView()
-        page=TransparentWebPage(self.browser)
-        self.browser.setPage(page)
-        s=self.browser.settings()
-        s.setAttribute(QWebEngineSettings.WebGLEnabled,True)
-        s.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled,True)
-        s.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls,True)
-        self.browser.setStyleSheet("background: transparent; border: none;")
-        self.browser.page().setBackgroundColor(QColor(0,0,0,0))
-        self.browser.loadFinished.connect(self.on_load_finished)
-        self.browser.setContextMenuPolicy(Qt.NoContextMenu)
-        layout.addWidget(self.browser)
-        self.setLayout(layout)
-        self.overlay=OverlayWidget(self)
-        self.overlay.setGeometry(0,0,350,550)
-        self.overlay.raise_()
-        html_path=os.path.join(BASE_DIR,"nova_live2d.html")
-        self.create_live2d_html(html_path)
-        self.browser.setUrl(QUrl.fromLocalFile(html_path))
-    def forward_click_to_browser(self,pos):
-        self.browser.page().runJavaScript(f"(function(){{var e=new MouseEvent('click',{{bubbles:true,clientX:{pos.x()},clientY:{pos.y()}}});document.querySelector('canvas').dispatchEvent(e);}})();")
+     if HAS_KEYBOARD:
+        try:
+            keyboard.add_hotkey('ctrl+space',lambda:QTimer.singleShot(0,self.toggle_chat),suppress=True)
+            keyboard.add_hotkey('ctrl+1',lambda:QTimer.singleShot(0,self.toggle_voice_listen),suppress=True)
+            keyboard.add_hotkey('ctrl+2',lambda:QTimer.singleShot(0,lambda:self._open_chat_and("general")),suppress=True)
+            keyboard.add_hotkey('ctrl+3',lambda:QTimer.singleShot(0,lambda:self._open_chat_and("code")),suppress=True)
+            keyboard.add_hotkey('ctrl+4',lambda:QTimer.singleShot(0,self.pom_window.show_timer),suppress=True)
+            keyboard.add_hotkey('ctrl+5',lambda:QTimer.singleShot(0,self.chat_bubble._log_water),suppress=True)
+            keyboard.add_hotkey('ctrl+6',lambda:QTimer.singleShot(0,self._toggle_speaker),suppress=True)
+        except Exception:
+            pass
+    def _toggle_speaker(self):
+     if not self.chat_bubble.isVisible():
+        self.chat_bubble.show_chat()
+     self.chat_bubble._toggle_tts()    
     def toggle_chat(self):
         if self.chat_bubble.isVisible():
             self.chat_bubble.hide()
@@ -2302,7 +2305,7 @@ class NovaCompanion(QWidget):
     def toggle_movable(self):
         self.movable_mode=not self.movable_mode
         if self.movable_mode:
-            self.set_emotion_with_status("excited","Drag me around!",duration=0)
+            self.set_emotion_with_status("excited","Drag me anywhere!",duration=0)
             self.setCursor(Qt.OpenHandCursor)
         else:
             self.set_emotion_with_status("happy","Locked in place!",duration=5000)
@@ -2318,31 +2321,69 @@ class NovaCompanion(QWidget):
         hour=time.localtime().tm_hour
         player_name=get_player_name()
         if 5<=hour<8:
-            greetings=[f"Early start! Good morning, {player_name}!",f"Rise and shine, {player_name}!"]
+            greetings=[f"Wow, early start! Good morning, {player_name}! The world is yours today.",f"Rise and shine, {player_name}! You are already ahead of most people."]
             emotion="excited"
         elif 8<=hour<12:
-            greetings=[f"Good morning, {player_name}! Let's have a great day!",f"Hey {player_name}! Ready to go!"]
+            greetings=[f"Good morning, {player_name}! Let's make today count!",f"Hey {player_name}! Nova is online and ready. What are we working on?"]
             emotion="happy"
         elif 12<=hour<14:
-            greetings=[f"Lunchtime, {player_name}! Have you eaten?",f"Good afternoon, {player_name}!"]
+            greetings=[f"Good afternoon, {player_name}! Hope you have had lunch. Let's keep going!",f"Hey {player_name}! Midday check in. How is everything going?"]
             emotion="caring"
         elif 14<=hour<18:
-            greetings=[f"Good afternoon, {player_name}! Keep it up!",f"Hey {player_name}! You're doing great!"]
+            greetings=[f"Good afternoon, {player_name}! You are doing great. Keep that energy up!",f"Hey {player_name}! Nova is here. Let's finish the day strong!"]
             emotion="proud"
         elif 18<=hour<21:
-            greetings=[f"Good evening, {player_name}! How was your day?",f"Evening, {player_name}!"]
+            greetings=[f"Good evening, {player_name}! How was your day? I am all ears.",f"Evening, {player_name}! Time to wind down or keep building. Your call!"]
             emotion="happy"
         elif 21<=hour<23:
-            greetings=[f"Hey {player_name}! Don't overwork!",f"Night time! Winding down?"]
+            greetings=[f"Hey {player_name}! Getting late. Don't overwork yourself tonight.",f"Night time, {player_name}! Nova is here if you need anything."]
             emotion="caring"
         else:
-            greetings=[f"{player_name}! It's late! Rest soon!",f"{player_name}... past midnight!"]
+            greetings=[f"{player_name}! It is past midnight. Please get some rest soon.",f"Hey {player_name}, burning the midnight oil? I am here but please rest soon."]
             emotion="worried"
         greeting=random.choice(greetings)
-        self._status_locked_until=time.time()+10
+        self._status_locked_until=time.time()+12
         self.set_emotion(emotion,duration=12000)
         self.update_floating_status(emotion,greeting)
-        self.chat_bubble._speak_now(greeting,emotion)    
+        self.chat_bubble._speak_now(greeting,emotion)
+    def _reset_nova(self):
+        self.set_emotion_with_status("worried","Resetting...",duration=3000)
+        self.chat_bubble._speak_now("Resetting Nova. See you soon!","caring")
+        QTimer.singleShot(2000,self._do_reset)
+    def _do_reset(self):
+        reset_all_data()
+        restart_application()
+    def _populate_code_menu(self,menu):
+        menu.clear()
+        history=self.chat_bubble.get_code_history()
+        if not history:
+            a=QAction("No recent codes",self)
+            a.setEnabled(False)
+            menu.addAction(a)
+            return
+        for i,entry in enumerate(reversed(history[-5:])):
+            idx=len(history)-1-i
+            lang=entry["blocks"][0][0]if entry["blocks"]else"code"
+            label=f"[{entry['time']}] {lang}"
+            a=QAction(label,self)
+            a.triggered.connect(lambda checked,x=idx:self.chat_bubble.show_history_code(x))
+            menu.addAction(a)
+    def _show_screen_time(self):
+        if not self.chat_bubble.isVisible():
+            self.chat_bubble.show_chat()
+        msg=self.screen_time.get_session_time()
+        self.chat_bubble.show_message(msg,"watching")
+        self.chat_bubble._speak_now(msg,"watching")
+    def _take_break(self):
+        self.screen_time.take_break()
+        resp="Break taken! Timer reset! You deserve it!"
+        self.set_emotion_with_status("happy",resp,duration=8000)
+        self.chat_bubble.show_message(resp,"happy")
+        self.chat_bubble._speak_now(resp,"happy")
+    def _open_chat_and(self,mode):
+        if not self.chat_bubble.isVisible():
+            self.chat_bubble.show_chat()
+        self.chat_bubble._analyze_screen(mode)
     def start_emotion_polling(self):
         self.poll_timer=QTimer()
         self.poll_timer.timeout.connect(self.check_emotion)
@@ -2360,142 +2401,154 @@ class NovaCompanion(QWidget):
         self.mouse_timer.timeout.connect(self.track_mouse)
         self.mouse_timer.start(33)
     def start_quote_timer(self):
-        self.quote_timer=QTimer()
-        self.quote_timer.timeout.connect(self.auto_show_quote)
-        self.quote_timer.start(60000)
+     self.quote_timer=QTimer()
+     self.quote_timer.timeout.connect(self.auto_show_quote)
+     self.quote_timer.start(60000)
     def start_time_awareness(self):
         self.time_timer=QTimer()
         self.time_timer.timeout.connect(self.check_time_events)
         self.time_timer.start(60000)
     def start_activity_quote_timer(self):
-        self.activity_quote_timer=QTimer()
-        self.activity_quote_timer.timeout.connect(self.show_activity_specific_quote)
-        self.activity_quote_timer.start(600000)
+     self.activity_quote_timer=QTimer()
+     self.activity_quote_timer.timeout.connect(self.show_activity_specific_quote)
+     self.activity_quote_timer.start(1200000)
     def show_activity_specific_quote(self):
-        if not self.model_loaded or self.listening or self.chat_bubble._is_waiting_ai:
-            return
-        if not self.last_matched_app_type:
-            return
-        quote_pool=ACTIVITY_QUOTES_MAP.get(self.last_matched_app_type,RANDOM_QUOTES)
-        available=[q for q in quote_pool if q["text"]not in self.used_quotes]
-        if not available:
-            available=quote_pool
-        if available:
-            q=random.choice(available)
-            self.used_quotes.append(q["text"])
-            if len(self.used_quotes)>50:
-                self.used_quotes=self.used_quotes[-25:]
-            self._persistent_app_status=q["text"]
-            self._persistent_app_emotion=q["emotion"]
-            self._status_locked_until=time.time()+30
-            self.set_emotion(q["emotion"],duration=30000)
-            self.update_floating_status(q["emotion"],q["text"])
-            if should_speak_quote(q["text"]):
-                self.chat_bubble._speak_now(q["text"],q["emotion"])
-    def check_user_activity(self):
-        if not self.model_loaded or self.listening or self.chat_bubble._is_waiting_ai:
-            return
-        self._title_check_counter+=1
-        if self._title_check_counter%2==0:
-            self._cached_window_title=get_active_window_title()
-        title=self._cached_window_title
-        if not title or len(title)<2:
-            return
-        if self._was_idle:
-            idle_duration=(time.time()-self._idle_start)/60
-            self._was_idle=False
-            self._check_comeback(idle_duration)
-        self.last_activity_time=time.time()
-        matched=False
-        for key,data in APP_WATCH_MAP.items():
-            if key in title:
-                matched=True
-                self.screen_time.check_distraction(key)
-                if key!=self.last_matched_app_key:
-                    self.last_matched_app_key=key
-                    self.last_matched_app_type=data.get("type","")
-                    self._current_watching_text=data["text"]
-                    self._persistent_app_status=data["text"]
-                    self._persistent_app_emotion=data["emotion"]
-                    self._status_locked_until=0
-                    self.set_emotion(data["emotion"],duration=0)
-                    self.update_floating_status(data["emotion"],data["text"])
-                else:
-                    if time.time()>=self._status_locked_until and self._persistent_app_status:
-                        self.update_floating_status(self._persistent_app_emotion,self._persistent_app_status)
-                break
-        if not matched:
-            self.screen_time.check_distraction("")
-            if self.last_matched_app_key:
-                self.last_matched_app_key=""
-                self.last_matched_app_type=""
-                self._current_watching_text=""
-                self._persistent_app_status=""
-                self._persistent_app_emotion=""
-                if time.time()>=self._status_locked_until:
-                    self.revert_to_neutral()
-    def _check_comeback(self,minutes_away):
-        for quote in reversed(COMEBACK_QUOTES):
-            if minutes_away>=quote["min_away"]:
-                self._status_locked_until=time.time()+10
-                self.set_emotion_with_status(quote["emotion"],quote["text"],duration=10000)
-                self.chat_bubble._speak_now(quote["text"],quote["emotion"])
-                break
-    def show_contextual_quote(self):
-        now=time.localtime()
-        hour=now.tm_hour
-        weekday=now.tm_wday
-        if 22<=hour or hour<5:
-            pool=NIGHT_QUOTES+AFFIRMATION_QUOTES
-        elif 5<=hour<10:
-            pool=MORNING_QUOTES+RANDOM_QUOTES
-        elif weekday>=5:
-            pool=WEEKEND_QUOTES+RANDOM_QUOTES
-        else:
-            pool=RANDOM_QUOTES+AFFIRMATION_QUOTES
-        available=[q for q in pool if q["text"]not in self.used_quotes]
-        if not available:
-            self.used_quotes.clear()
-            available=pool
+     if not self.model_loaded or self.listening or self.chat_bubble._is_waiting_ai:
+        return
+     if not self.last_matched_app_type:
+        return
+     player_name=get_player_name()
+     quote_pool=ACTIVITY_QUOTES_MAP.get(self.last_matched_app_type,RANDOM_QUOTES)
+     available=[q for q in quote_pool if q["text"]not in self.used_quotes]
+     if not available:
+        available=quote_pool
+     if available:
         q=random.choice(available)
+        text=q["text"].replace("{player_name}",player_name)
         self.used_quotes.append(q["text"])
         if len(self.used_quotes)>50:
             self.used_quotes=self.used_quotes[-25:]
-        self._status_locked_until=time.time()+15
-        self.set_emotion(q["emotion"],duration=15000)
-        self.update_floating_status(q["emotion"],q["text"])
-        if should_speak_quote(q["text"]):
-            self.chat_bubble._speak_now(q["text"],q["emotion"])
+        self._persistent_app_status=text
+        self._persistent_app_emotion=q["emotion"]
+        self._status_locked_until=time.time()+30
+        self.set_emotion(q["emotion"],duration=30000)
+        self.update_floating_status(q["emotion"],text)
+        if time.time()-self._last_spoken_time>self._min_speak_gap:
+            self._last_spoken_time=time.time()
+            self.chat_bubble._speak_now(text,q["emotion"])
+    def check_user_activity(self):
+     if not self.model_loaded or self.listening or self.chat_bubble._is_waiting_ai:
+        return
+     self._title_check_counter+=1
+     if self._title_check_counter%2==0:
+        self._cached_window_title=get_active_window_title()
+     title=self._cached_window_title
+     if not title or len(title)<2:
+        return
+     if self._was_idle:
+        idle_duration=(time.time()-self._idle_start)/60
+        self._was_idle=False
+        self._check_comeback(idle_duration)
+     self.last_activity_time=time.time()
+     matched=False
+     for key,data in APP_WATCH_MAP.items():
+        if key in title:
+            matched=True
+            self.screen_time.check_distraction(key)
+            if key!=self.last_matched_app_key:
+                self.last_matched_app_key=key
+                self.last_matched_app_type=data.get("type","")
+                self._current_watching_text=data["text"]
+                self._persistent_app_status=data["text"]
+                self._persistent_app_emotion=data["emotion"]
+                self._status_locked_until=0
+                self.set_emotion(data["emotion"],duration=0)
+                self.update_floating_status(data["emotion"],data["text"])
+            else:
+                if time.time()>=self._status_locked_until and self._persistent_app_status:
+                    self.update_floating_status(self._persistent_app_emotion,self._persistent_app_status)
+            break
+     if not matched:
+        self.screen_time.check_distraction("")
+        if self.last_matched_app_key:
+            self.last_matched_app_key=""
+            self.last_matched_app_type=""
+            self._current_watching_text=""
+            self._persistent_app_status=""
+            self._persistent_app_emotion=""
+            if time.time()>=self._status_locked_until:
+                self.revert_to_neutral()
+    def _check_comeback(self,minutes_away):
+        player_name=get_player_name()
+        for quote in reversed(COMEBACK_QUOTES):
+            if minutes_away>=quote["min_away"]:
+                text=quote["text"].replace("{player_name}",player_name)
+                self._status_locked_until=time.time()+10
+                self.set_emotion_with_status(quote["emotion"],text,duration=10000)
+                self.chat_bubble._speak_now(text,quote["emotion"])
+                break
+    def show_contextual_quote(self):
+     now=time.localtime()
+     hour=now.tm_hour
+     weekday=now.tm_wday
+     player_name=get_player_name()
+     if 22<=hour or hour<5:
+        pool=NIGHT_QUOTES+AFFIRMATION_QUOTES
+     elif 5<=hour<10:
+        pool=MORNING_QUOTES+RANDOM_QUOTES
+     elif weekday>=5:
+        pool=WEEKEND_QUOTES+RANDOM_QUOTES
+     else:
+        pool=RANDOM_QUOTES+AFFIRMATION_QUOTES
+     available=[q for q in pool if q["text"]not in self.used_quotes]
+     if not available:
+        self.used_quotes.clear()
+        available=pool
+     q=random.choice(available)
+     text=q["text"].replace("{player_name}",player_name)
+     self.used_quotes.append(q["text"])
+     if len(self.used_quotes)>50:
+         self.used_quotes=self.used_quotes[-25:]
+     self._status_locked_until=time.time()+15
+     self.set_emotion(q["emotion"],duration=15000)
+     self.update_floating_status(q["emotion"],text)
+     if time.time()-self._last_spoken_time>self._min_speak_gap:
+        self._last_spoken_time=time.time()
+        self.chat_bubble._speak_now(text,q["emotion"])
     def auto_show_quote(self):
-        if not self.model_loaded or self.listening or self.chat_bubble._is_waiting_ai:
-            return
-        if time.time()<self._status_locked_until:
-            return
-        if self._persistent_app_status:
-            return
-        if time.time()-self.last_quote_time>self.next_quote_delay:
-            self.last_quote_time=time.time()
-            self.next_quote_delay=random.randint(600,900)
-            self.show_contextual_quote()
+     if not self.model_loaded or self.listening or self.chat_bubble._is_waiting_ai:
+        return
+     if time.time()<self._status_locked_until:
+        return
+     if self._persistent_app_status:
+        return
+     if time.time()-self.last_quote_time>self.next_quote_delay:
+        self.last_quote_time=time.time()
+        self.next_quote_delay=random.randint(1200,1800)
+        self.show_contextual_quote()
     def check_time_events(self):
         if not self.model_loaded or time.time()<self._status_locked_until or self.chat_bubble._is_waiting_ai:
             return
         now=time.localtime()
         hour=now.tm_hour
+        player_name=get_player_name()
         if hour!=self.last_hour_check:
             self.last_hour_check=hour
             if 6<=hour<=9 and not self.greeted_today:
                 self.greeted_today=True
                 q=random.choice(MORNING_QUOTES)
+                text=q["text"].replace("{player_name}",player_name)
                 self._status_locked_until=time.time()+15
                 self.set_emotion(q["emotion"],duration=15000)
-                self.update_floating_status(q["emotion"],q["text"])
+                self.update_floating_status(q["emotion"],text)
+                self.chat_bubble._speak_now(text,q["emotion"])
             elif hour==23:
                 q=random.choice(NIGHT_QUOTES)
+                text=q["text"].replace("{player_name}",player_name)
                 self._status_locked_until=time.time()+15
                 self.set_emotion(q["emotion"],duration=15000)
-                self.update_floating_status(q["emotion"],q["text"])
-                self.chat_bubble._speak_now(q["text"],q["emotion"])
+                self.update_floating_status(q["emotion"],text)
+                self.chat_bubble._speak_now(text,q["emotion"])
             elif hour==0:
                 self.greeted_today=False
                 self._status_locked_until=time.time()+15
@@ -2506,7 +2559,7 @@ class NovaCompanion(QWidget):
                 self._status_locked_until=time.time()+15
                 self.set_emotion("worried",duration=15000)
                 self.update_floating_status("worried","3 AM! Please sleep!")
-                self.chat_bubble._speak_now("It's 3 AM! Please go to sleep!","worried")
+                self.chat_bubble._speak_now("It is 3 AM! Please go to sleep!","worried")
     def check_idle_and_fatigue(self):
         if not self.model_loaded or self.chat_bubble._is_waiting_ai:
             return
@@ -2518,11 +2571,11 @@ class NovaCompanion(QWidget):
             self._status_locked_until=time.time()+15
             self.set_emotion("lonely",duration=15000)
             self.update_floating_status("lonely","Been a while! Everything okay?")
-            self.chat_bubble._speak_now("Hey, it's been a while! Is everything okay?","caring")
+            self.chat_bubble._speak_now("Hey, it has been a while! Is everything okay?","caring")
         elif idle_duration>1800:
             self._status_locked_until=time.time()+12
             self.set_emotion("watching",duration=12000)
-            self.update_floating_status("watching","Still around? I'm here!")
+            self.update_floating_status("watching","Still around? I am here!")
     def track_mouse(self):
         if not self.model_loaded:
             return
@@ -2587,7 +2640,7 @@ class NovaCompanion(QWidget):
         if not HAS_SPEECH:
             self.set_emotion_with_status("worried","No speech module!",duration=6000)
             if self.chat_bubble.isVisible():
-                self.chat_bubble.show_message("Voice input requires SpeechRecognition and PyAudio. Install: pip install SpeechRecognition PyAudio","worried")
+                self.chat_bubble.show_message("Voice input requires SpeechRecognition and PyAudio.\nInstall with: pip install SpeechRecognition PyAudio","worried")
             return
         if self.listening:
             self.listening=False
@@ -2598,13 +2651,14 @@ class NovaCompanion(QWidget):
             self.set_emotion_with_status("happy","Voice input stopped!",duration=5000)
             if self.chat_bubble.isVisible():
                 self.chat_bubble.show_message("Voice input stopped!","happy")
+                self.chat_bubble._speak_now("Voice input stopped!","happy")
             return
         self.listening=True
         self._continuous_listening=True
         self.set_emotion_with_status("excited","Listening... speak now!",duration=0)
         if not self.chat_bubble.isVisible():
             self.chat_bubble.show_chat()
-        self.chat_bubble._add_chat_bubble("[Continuous listening ON - click mic again to stop]",is_user=True)
+        self.chat_bubble._add_chat_bubble("[Continuous listening ON — click mic again to stop]",is_user=True)
         self._start_voice_worker()
     def _start_voice_worker(self):
         if not self._continuous_listening:
@@ -2748,6 +2802,10 @@ startLoading();
 def main():
     app=QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setApplicationName("Nova AI Companion")
+    app.setApplicationVersion("2.0")
+    font=QFont("Segoe UI",10)
+    app.setFont(font)
     config=load_config()
     if not config.get("api_key"):
         setup=SetupWindow()
@@ -2757,4 +2815,4 @@ def main():
     companion.show()
     sys.exit(app.exec_())
 if __name__=="__main__":
-    main()            
+    main()                                        
