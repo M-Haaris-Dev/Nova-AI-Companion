@@ -10,6 +10,10 @@ Nova is an intelligent, humanoid desktop companion designed to be your **Cogniti
 ```bash
 pip install PyQt5 PyQtWebEngine google-genai edge-tts pyautogui Pillow SpeechRecognition PyAudio keyboard pyttsx3
 ```
+### or 
+```bash
+pip install requirments.txt
+```
 
 ### 2. Launch Nova
 ```bash
