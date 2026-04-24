@@ -13,7 +13,7 @@ pip install PyQt5 PyQtWebEngine google-genai edge-tts pyautogui Pillow SpeechRec
 
 ### 2. Launch Nova
 ```bash
-python main.py
+py -3.11 main.py
 ```
 
 ### 3. First Run Setup
