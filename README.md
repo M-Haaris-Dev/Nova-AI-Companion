@@ -4,20 +4,45 @@ Nova is an intelligent, humanoid desktop companion designed to be your **Cogniti
 
 ---
 
+## ⚠️ CRITICAL INSTALLATION NOTES (READ FIRST)
+
+To avoid the most common errors, please ensure:
+1.  **Python Version:** Use **Python 3.11**. (Newer versions like 3.12 or 3.14 often cause `PyAudio` and `PyQt5` installation failures).
+2.  **Extraction:** Do **NOT** run Nova from a ZIP preview. Right-click the ZIP and select **"Extract All"** to your Desktop/Documents before starting.
+
+---
+
 ## 🚀 GETTING STARTED
 
-### 1. Install Dependencies
+### 1. Open the Project Folder
+Open the extracted folder in File Explorer. Click the **Address Bar** at the top, type `cmd`, and press **Enter**. This opens the terminal exactly where you need to be.
+
+### 2. Install Dependencies
+Copy and paste this command to install all necessary libraries at once:
 ```bash
 pip install PyQt5 PyQtWebEngine google-genai edge-tts pyautogui Pillow SpeechRecognition PyAudio keyboard pyttsx3
 ```
+*Note: If PyAudio fails, install `pipwin` first, then use `pipwin install pyaudio`.*
 
-### 2. Launch Nova
+### 3. Launch Nova
+Run the following command:
 ```bash
 py -3.11 main.py
 ```
 
-### 3. First Run Setup
-A setup window will appear on first launch. Paste your free Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey) and tell Nova what you want her to call you. She will validate your key automatically and pick the best available Gemini model for you.
+### 4. First Run Setup
+A setup window will appear. Paste your free Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey) and tell Nova what to call you. She will validate your key automatically.
+
+---
+
+## 🔧 TROUBLESHOOTING (COMMON ERRORS)
+
+*   **`ModuleNotFoundError: No module named 'PyQt5.QtWebEngineWidgets'`**
+    *   *Fix:* Run `pip install PyQtWebEngine`.
+*   **`Microsoft Visual C++ 14.0 is required` during PyAudio install.**
+    *   *Fix:* This is caused by using a Python version newer than 3.11. Switch to **Python 3.11** for the easiest fix.
+*   **`can't open file 'main.py': [Errno 2] No such file or directory`**
+    *   *Fix:* You are in the wrong folder in your terminal. Use the "Address Bar" trick mentioned in Step 1 of Getting Started.
 
 ---
 
@@ -50,113 +75,30 @@ These work from **anywhere on your PC** — no need to click Nova first.
 ## 🧠 FEATURES AND CAPABILITIES
 
 ### 1. 🎓 Teaching Nova — Smart App and Web Launching
-Nova knows hundreds of apps and websites out of the box. If she does not recognise something, she will learn it from you **right in the chat** — no popups, no forms.
-
-**How it works:**
-- Say or type `open MyApp` or `open mywebsite`
-- If Nova does not know it, she will ask you naturally in the chat
-- Just reply with `website`, `app`, or `folder`
-- She will then ask for the URL, exe name, or folder path
-- She saves it permanently and opens it immediately
-- Next time you ask, she handles it instantly
-
-**Fuzzy Matching:**
-Nova uses intelligent fuzzy matching so even if you misspell something or say it slightly differently, she will still find the right app or website.
-
-**Manage your learned commands:**
-- `/learned` — See everything Nova has learned with dates
-- `/forget [name]` — Remove a specific learned command
-
----
+Nova knows hundreds of apps and websites out of the box. If she does not recognise something, she will learn it from you **right in the chat**.
+- Say `open MyApp` or `open mywebsite`.
+- If she doesn't know it, tell her the URL or path when she asks.
+- Commands: `/learned` (see all), `/forget [name]` (remove).
 
 ### 2. 🎭 Emotional Intelligence and Dynamic Voice
-Nova reads the emotion behind what you write and responds accordingly.
-
-- **26 distinct emotions** — happy, proud, worried, comfort, playful, determined, shy, shocked, and more
-- **Contextual responses** — Share a win and she celebrates. Share a struggle and she comforts
-- **Smart voice** — Uses Microsoft Edge TTS with the `en-US-AvaNeural` voice for a natural, warm sound
-- **Smart speaking** — For long responses Nova speaks the key points and shows the full text in chat
-- **Code responses** — Nova announces the code verbally and shows the full formatted block in chat with a copy button
-- **Continuous Voice Mode** — Press `Ctrl+1` or click the mic icon. Speak naturally while you work and Nova replies hands-free
-
----
+Nova reacts to your mood with **26 distinct emotions**.
+- **Contextual responses:** She celebrates wins and comforts struggles.
+- **Natural Voice:** Uses Microsoft Edge TTS (`en-US-AvaNeural`).
+- **Continuous Voice Mode:** Hands-free conversation via `Ctrl+1`.
 
 ### 3. 👁️ Screen and Code Analysis
-Nova can see your screen when you ask her to.
-
-**Trigger by voice or text:**
-- `"analyse my screen"` or `"what's on my screen"` — General screen analysis
-- `"analyse my code"` or `"debug this"` — Focused code and bug analysis
-
-**Trigger by shortcut:**
-- `Ctrl+2` — General screen analysis
-- `Ctrl+3` — Code and bug analysis
-
-**Trigger by button:**
-- 👁 icon in the chat header — General analysis
-- 💻 icon in the chat header — Code analysis
-
-Nova will describe what she sees, explain any code on screen, identify bugs, and suggest improvements. Code blocks are shown with syntax highlighting and a one-click copy button.
-
----
+Nova "sees" your screen via Gemini's vision capabilities.
+- Trigger with `"analyse my screen"` or shortcuts `Ctrl+2` (General) / `Ctrl+3` (Code).
+- She identifies bugs, suggests improvements, and provides formatted code blocks with a copy button.
 
 ### 4. ⏳ Passive Productivity Tracking
-Nova watches quietly in the background so you do not burn out.
+Nova monitors your active apps (VS Code, GitHub, YouTube, etc.) to help you stay focused.
+- **Health Reminders:** Every 60-90 minutes, she suggests stretching or eye rests.
+- **Distraction Nudges:** Notices if you spend too much time on social media or streaming sites.
 
-**App awareness:**
-Nova recognises 100+ apps and websites including VS Code, PyCharm, GitHub, YouTube, Netflix, Spotify, Discord, Steam, and more. She shows a relevant status message when you switch to a recognised app.
-
-**Screen time warnings:**
-| Time | What Nova does |
-|---|---|
-| 60 minutes | Reminds you to stretch |
-| 90 minutes | Tells you to rest your eyes |
-| 2 hours | Demands a real break |
-| 3+ hours | Gets serious about your health |
-
-**Distraction tracking:**
-If you spend too long on YouTube, TikTok, Instagram, Reddit, Netflix, or Twitch, Nova will notice and remind you to refocus. Warnings are spaced out so they are not irritating.
-
-**Idle detection:**
-- Go idle for 30 minutes and she checks in
-- Come back after a long break and she welcomes you back warmly
-
-**Time awareness:**
-Nova knows the time of day and reacts accordingly. Expect morning energy at 8am, caring reminders at 11pm, and genuine concern at 3am if you are still coding.
-
----
-
-### 5. 💬 Contextual Quotes and Reminders
-Nova shows motivational quotes and helpful reminders automatically. These are context-aware based on what you are doing.
-
-- Coding — developer tips and encouragement
-- Gaming — focus and hydration reminders
-- Studying — study technique tips
-- Distracted — gentle refocus nudges
-- Night time — sleep and rest reminders
-- Morning — energy and motivation
-
-Quotes are spaced **20 to 30 minutes apart** so they never feel overwhelming. Nova also speaks every quote aloud using her natural voice.
-
----
-
-### 6. ⏱️ Pomodoro Focus Timer
-A floating, draggable focus timer that integrates with Nova's emotion system.
-
-- Press `Ctrl+4` or click the ⏱ icon or type `/timer 25`
-- Nova switches to a determined emotion while you focus
-- She celebrates when the timer ends and reminds you to take a break
-- Custom durations supported — `/timer 45`, `/timer 90`, etc
-
----
-
-### 7. 💧 Hydration Tracker
-Nova tracks your daily water intake and reminds you to drink every 45 minutes.
-
-- Press `Ctrl+5` or click 💧 or type `/water` to log a glass
-- Type `/water status` to check your progress
-- Goal is 8 glasses per day
-- Nova celebrates when you hit your goal
+### 5. ⏱️ Focus & Hydration
+- **Pomodoro Timer:** `/timer 25` or `Ctrl+4` to start a focus session.
+- **Hydration:** `/water` or `Ctrl+5` to log water intake. Nova reminds you to drink every 45 minutes.
 
 ---
 
@@ -164,75 +106,12 @@ Nova tracks your daily water intake and reminds you to drink every 45 minutes.
 
 | Button | Action |
 |---|---|
-| 🎙 | Toggle continuous voice input |
+| 🎙 | Toggle voice input |
 | 👁 | General screen analysis |
 | 💻 | Code and bug analysis |
-| ⏱ | Open Pomodoro timer |
-| 💧 | Log a glass of water |
-| 🧘 | Posture check reminder |
-| 🔊 | Toggle voice output on/off |
-| A+ | Increase chat font size |
-| A- | Decrease chat font size |
-| — | Minimise chat height |
-| ✕ | Close chat window |
-
----
-
-## 💻 FULL COMMAND REFERENCE
-
-### General
-| Command | Description |
-|---|---|
-| `/help` | Show all commands and shortcuts |
-| `/clear` | Clear the current chat history |
-| `/reset` | Full factory reset — clears all data and restarts |
-
-### Customisation
-| Command | Description |
-|---|---|
-| `/name [name]` | Change what Nova calls you |
-| `/fontsize [13-28]` | Adjust the chat font size |
-| `/voice off\|on` | Toggle Nova's voice output |
-
-### Productivity and Health
-| Command | Description |
-|---|---|
-| `/timer [minutes]` | Start a custom focus timer |
-| `/timer stop` | Stop the running timer |
-| `/screentime` | Check how long you have been working |
-| `/break` | Log a break and reset screen time |
-| `/water` | Log a glass of water |
-| `/water status` | Check daily hydration progress |
-| `/posture` | Trigger a posture check reminder |
-
-### Memory Management
-| Command | Description |
-|---|---|
-| `/learned` | Show all learned commands with dates |
-| `/forget [name]` | Remove a learned command |
-
----
-
-## ⚠️ ERROR HANDLING
-Nova handles errors gracefully and tells you exactly what happened in plain language.
-
-| Error | What Nova does |
-|---|---|
-| API quota exceeded | Tells you to wait or get a new key |
-| Invalid API key | Prompts you to use `/reset` |
-| Network error | Warns you and suggests checking your connection |
-| Speech not available | Explains what to install |
-| App launch failed | Tells you it failed and suggests trying manually |
-| All Gemini models failed | Reports the exact error and suggests `/reset` |
-
----
-
-## 🤖 AI MODEL PRIORITY
-Nova automatically tries Gemini models in this order and falls back gracefully if one is unavailable.
-
-```
-gemini-2.5-flash → gemini-2.0-flash-exp → gemini-2.0-flash → gemini-1.5-flash → gemini-pro
-```
+| ⏱ | Pomodoro timer |
+| 🔊 | Toggle voice output |
+| A+/A- | Font size adjustment |
 
 ---
 
@@ -241,15 +120,15 @@ gemini-2.5-flash → gemini-2.0-flash-exp → gemini-2.0-flash → gemini-1.5-fl
 Nova-AI-Companion/
     main.py               ← Full application code
     nova_live2d.html      ← Live2D character renderer
-    config.json           ← Your API key and name (auto created)
-    companion_settings.json ← UI and voice settings (auto created)
-    learned_commands.json ← Everything Nova has learned (auto created)
-    miyuki_emotion.json   ← Emotion bridge file (auto created)
+    config.json           ← API key and user name
+    learned_commands.json ← User-taught apps and links
 ```
 
 ---
 
 ## 🛡️ THE MISSION
-Nova is not just software. She is a partner in the grind. Whether you are coding until dawn, grinding competitive games, studying for exams, or just need someone to keep you on track — Nova is always watching, always learning, and always there.
+Nova is not just software. She is a partner in the grind. Whether you are coding until dawn, gaming, or studying—Nova is always watching, always learning, and always there.
 
 > *"I am not just an assistant. I am your companion."* — Nova
+
+***
