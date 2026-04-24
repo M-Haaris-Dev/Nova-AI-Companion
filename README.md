@@ -20,7 +20,7 @@ Open the extracted folder in File Explorer. Click the **Address Bar** at the top
 ### 2. Install Dependencies
 Copy and paste this command to install all necessary libraries at once:
 ```bash
-pip install PyQt5 PyQtWebEngine google-genai edge-tts pyautogui Pillow SpeechRecognition PyAudio keyboard pyttsx3
+py -3.11 -m pip install PyQt5 PyQtWebEngine google-genai edge-tts pyautogui Pillow SpeechRecognition PyAudio keyboard pyttsx3
 ```
 *Note: If PyAudio fails, install `pipwin` first, then use `pipwin install pyaudio`.*
 
