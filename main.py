@@ -550,6 +550,7 @@ class EdgeTTSWorker(QThread):
                 self.audio_ready.emit(temp_file)
         except Exception as e:
             self.tts_error.emit(str(e)[:50])
+            speak_legacy(self.text)
 def get_legacy_tts_engine():
     global tts_engine
     if tts_engine is None and HAS_TTS:
