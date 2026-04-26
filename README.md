@@ -1,48 +1,54 @@
-# 🌟 Nova - AI Desktop Companion (Ultra v2.0)
+# 🌟 Nova - AI Desktop Companion (Elite v2.5)
 
-Nova is an intelligent, humanoid desktop companion designed to be your **Cognitive Partner**. She lives on your desktop, monitors your productivity, actively learns your workflow, supports your emotional wellbeing, and talks to you like a real friend — not a corporate chatbot.
+Nova is an elite-level, humanoid desktop companion designed as your **Cognitive Partner**. Moving away from flashy neon designs, this version introduces a **Premium Minimal Aesthetic**—inspired by high-end tools like Notion, Linear, and Arc. She lives on your desktop, monitors your workflow with process-level precision, supports your emotional wellbeing, and speaks with natural, human-like intelligence.
 
 ---
 
 ## ⚠️ CRITICAL INSTALLATION NOTES (READ FIRST)
 
-To avoid the most common errors, please ensure:
-1.  **Python Version:** Use **Python 3.11**. (Newer versions like 3.12 or 3.14 often cause `PyAudio` and `PyQt5` installation failures).
-2.  **Extraction:** Do **NOT** run Nova from a ZIP preview. Right-click the ZIP and select **"Extract All"** to your Desktop/Documents before starting.
+To ensure the highest performance and stability:
+1.  **Python Version:** Use **Python 3.11**. This version provides the best compatibility for `PyAudio` and `PyQt5`.
+2.  **Audio Codecs:** For the best experience with the **AvaNeural** voice, ensure your system can play MP3 files (Windows Media Player or K-Lite Codec Pack recommended).
+3.  **Extraction:** Never run Nova directly from a ZIP preview. Right-click and select **"Extract All"** to a dedicated folder first.
 
 ---
 
 ## 🚀 GETTING STARTED
 
 ### 1. Open the Project Folder
-Open the extracted folder in File Explorer. Click the **Address Bar** at the top, type `cmd`, and press **Enter**. This opens the terminal exactly where you need to be.
+Open your extracted folder. Click the **Address Bar** at the top, type `cmd`, and press **Enter**.
 
-### 2. Install Dependencies
-Copy and paste this command to install all necessary libraries at once:
+### 2. Install High-Performance Dependencies
+Copy and paste this command to install the optimized library stack:
 ```bash
 py -3.11 -m pip install PyQt5 PyQtWebEngine google-genai edge-tts pyautogui Pillow SpeechRecognition PyAudio keyboard pyttsx3
 ```
-*Note: If PyAudio fails, install `pipwin` first, then use `pipwin install pyaudio`.*
+*Note: If PyAudio compilation fails, use the pre-built wheels or C++ Build Tools as discussed.*
 
 ### 3. Launch Nova
-Run the following command:
+Execute the main core:
 ```bash
 py -3.11 main.py
 ```
 
-### 4. First Run Setup
-A setup window will appear. Paste your free Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey) and tell Nova what to call you. She will validate your key automatically.
+### 4. Professional Setup
+On first launch, the redesigned setup window will appear. Enter your Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey) and set your preferred name.
 
 ---
 
-## 🔧 TROUBLESHOOTING (COMMON ERRORS)
+## 🎨 NEW IN v2.5: PREMIUM REDESIGN
 
-*   **`ModuleNotFoundError: No module named 'PyQt5.QtWebEngineWidgets'`**
-    *   *Fix:* Run `pip install PyQtWebEngine`.
-*   **`Microsoft Visual C++ 14.0 is required` during PyAudio install.**
-    *   *Fix:* This is caused by using a Python version newer than 3.11. Switch to **Python 3.11** for the easiest fix.
-*   **`can't open file 'main.py': [Errno 2] No such file or directory`**
-    *   *Fix:* You are in the wrong folder in your terminal. Use the "Address Bar" trick mentioned in Step 1 of Getting Started.
+### 💎 High-Class UI/UX
+The interface has been completely rebuilt for a professional, aesthetic look.
+*   **Visual Comfort:** Font sizes have been increased globally (up to 36px for titles and 24px for chat) for effortless readability from any distance.
+*   **Elegant Palette:** Uses a sophisticated "Midnight & Slate" color profile with subtle accent borders and soft card shadows.
+*   **Spacious Bubbles:** Message bubbles now feature increased padding and width for a more open, modern feel.
+
+### 🎙️ Advanced Speaking Intelligence
+Nova no longer sounds like a basic bot. She features **Selective Audio Processing**:
+*   **Smart Summaries:** For long paragraph replies or code, she speaks the 2-3 most important sentences and directs you to the chat for details.
+*   **Warm Command Responses:** Instead of robotic confirmations, she provides natural phrases like *"Opened GitHub for you! Time to build something great, [Your Name]!"*
+*   **Selective Silence:** Routine tasks (like browsing Edge) update the status bar visually but remain silent to avoid annoyance. Only important warnings and motivational quotes are spoken aloud.
 
 ---
 
@@ -52,83 +58,48 @@ A setup window will appear. Paste your free Gemini API key from [Google AI Studi
 | Action | Result |
 |---|---|
 | **Double-Click Nova** | Opens or closes the Chat Interface |
-| **Right-Click Nova** | Opens the Quick Access Context Menu |
-| **Move your cursor** | Nova's eyes follow your mouse across the screen |
-| **Right-Click → Move** | Unlocks Nova so you can drag her anywhere |
-| **Right-Click → Move again** | Locks her back in place |
+| **Right-Click Nova** | Opens the Redesigned Professional Context Menu |
+| **Hover & Track** | Nova's eyes follow your cursor with high-frequency precision |
+| **Right-Click → Move** | Unlocks Nova; drag her to any corner of your workspace |
 
-### ⌨️ Global Keyboard Shortcuts
-These work from **anywhere on your PC** — no need to click Nova first.
+### ⌨️ Elite Hotkeys
+Optimized global shortcuts that work while you are in any other application:
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl + Space` | Open or close the chat window |
-| `Ctrl + 1` | Toggle voice input mic on/off |
-| `Ctrl + 2` | Analyse screen (general) |
-| `Ctrl + 3` | Analyse screen for code and bugs |
-| `Ctrl + 4` | Open the Pomodoro focus timer |
+| `Ctrl + Space` | Toggle chat interface |
+| `Ctrl + 1` | Toggle voice input (Continuous Listening) |
+| `Ctrl + 2` | Global screen analysis |
+| `Ctrl + 3` | Code-specific screen analysis |
+| `Ctrl + 4` | Open Pomodoro focus timer |
 | `Ctrl + 5` | Log a glass of water |
-| `Ctrl + 6` | Toggle speaker voice output on/off |
+| `Ctrl + 6` | Toggle speaker output (AvaNeural voice) |
 
 ---
 
-## 🧠 FEATURES AND CAPABILITIES
+## 🧠 INTELLIGENT CAPABILITIES
 
-### 1. 🎓 Teaching Nova — Smart App and Web Launching
-Nova knows hundreds of apps and websites out of the box. If she does not recognise something, she will learn it from you **right in the chat**.
-- Say `open MyApp` or `open mywebsite`.
-- If she doesn't know it, tell her the URL or path when she asks.
-- Commands: `/learned` (see all), `/forget [name]` (remove).
+### 1. 🎓 Cognitive Learning
+Nova learns your specific workflow. If you ask her to "open" a tool she doesn't know, she will initiate a **Learning Flow** to memorize the URL or file path for next time.
 
-### 2. 🎭 Emotional Intelligence and Dynamic Voice
-Nova reacts to your mood with **26 distinct emotions**.
-- **Contextual responses:** She celebrates wins and comforts struggles.
-- **Natural Voice:** Uses Microsoft Edge TTS (`en-US-AvaNeural`).
-- **Continuous Voice Mode:** Hands-free conversation via `Ctrl+1`.
+### 2. 🎭 Emotional Sync
+With 26 distinct emotional states, Nova's visual expression and voice tone (Pitch/Rate) shift dynamically based on your conversation.
 
-### 3. 👁️ Screen and Code Analysis
-Nova "sees" your screen via Gemini's vision capabilities.
-- Trigger with `"analyse my screen"` or shortcuts `Ctrl+2` (General) / `Ctrl+3` (Code).
-- She identifies bugs, suggests improvements, and provides formatted code blocks with a copy button.
+### 3. ⏳ Process-Level Activity Monitoring
+Using both Window Titles and Process Names, Nova recognizes when you are:
+*   **Grinding:** Celebrates your LeetCode/GitHub activity.
+*   **Gaming:** Switches to high-energy mode and offers encouragement.
+*   **Distracted:** Gently nudges you after prolonged social media scrolling.
 
-### 4. ⏳ Passive Productivity Tracking
-Nova monitors your active apps (VS Code, GitHub, YouTube, etc.) to help you stay focused.
-- **Health Reminders:** Every 60-90 minutes, she suggests stretching or eye rests.
-- **Distraction Nudges:** Notices if you spend too much time on social media or streaming sites.
-
-### 5. ⏱️ Focus & Hydration
-- **Pomodoro Timer:** `/timer 25` or `Ctrl+4` to start a focus session.
-- **Hydration:** `/water` or `Ctrl+5` to log water intake. Nova reminds you to drink every 45 minutes.
-
----
-
-## 🛠️ CHAT HEADER TOOLBAR
-
-| Button | Action |
-|---|---|
-| 🎙 | Toggle voice input |
-| 👁 | General screen analysis |
-| 💻 | Code and bug analysis |
-| ⏱ | Pomodoro timer |
-| 🔊 | Toggle voice output |
-| A+/A- | Font size adjustment |
-
----
-
-## 📁 FILE STRUCTURE
-```
-Nova-AI-Companion/
-    main.py               ← Full application code
-    nova_live2d.html      ← Live2D character renderer
-    config.json           ← API key and user name
-    learned_commands.json ← User-taught apps and links
-```
+### 🌙 Time Awareness
+Nova respects your schedule with refined greeting logic:
+*   **Evening (6 PM - 8 PM):** Warm "Good Evening" greetings.
+*   **Night (8 PM - 11 PM):** "Night Time" checks—encouraging you to wind down.
+*   **Late Night (11 PM+):** "Past Midnight" warnings—prioritizing your rest.
 
 ---
 
 ## 🛡️ THE MISSION
-Nova is not just software. She is a partner in the grind. Whether you are coding until dawn, gaming, or studying—Nova is always watching, always learning, and always there.
+Nova is built for the high-level developer, the dedicated student, and the elite gamer. She is a partner in the grind who understands that productivity requires both focus and emotional balance.
 
 > *"I am not just an assistant. I am your companion."* — Nova
-
-***
